@@ -41,7 +41,7 @@ void parallel_calculate(void* arg) {
 void verify() {
 	
 	int i = 0, j = 0;
-	sum = 0;
+	sum = 0; // should not be using the global variable sum
 	memset(&pSum, 0, R_SIZE*sizeof(int));
 
 	for (j = 0; j < R_SIZE; j += 1) {
@@ -119,6 +119,10 @@ int main(int argc, char **argv) {
 
 	// mutex destroy
 	pthread_mutex_destroy(&mutex);
+
+	fprintf(stderr , "Total sum is: %d\n", sum);
+	print_app_stats();
+	fprintf(stderr, "***************************\n");
 
 	// feel free to verify your answer here:
 	verify();
