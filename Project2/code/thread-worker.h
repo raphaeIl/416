@@ -3,7 +3,7 @@
 // List all group member's name:
 // username of iLab:
 // iLab Server:
-
+// gcc test.c ../thread-worker.c ../tscheduler.c ../queue.c -o test
 #ifndef WORKER_T_H
 #define WORKER_T_H
 
@@ -19,32 +19,29 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <ucontext.h>
-
-typedef uint worker_t;
+#include <signal.h>
 
 typedef struct TCB {
 	/* add important states in a thread control block */
-	int threadId;
-	int status; // running, waiting, blocked, ready
-	ucontext_t* context;
-	int* stack;
-	int priority;
-
-	// thread Id
-	// thread status
-	// thread context
-	// thread stack
-	// thread priority
+	int threadId; // thread Id
+	int status; // thread status - running, waiting, blocked, ready
+	ucontext_t* context; // thread context
+	void* stack; // thread stack
+	int priority; // thread priority
 	// And more ...
 
 	// YOUR CODE HERE
 } tcb; 
 
+typedef struct {
+	tcb* tcb;	
+} worker_t;
+
 /* mutex struct definition */
 typedef struct worker_mutex_t {
 	/* add something here */
 
-	// YOUR CODE HERE
+// YOUR CODE HERE
 } worker_mutex_t;
 
 /* Priority definitions */
@@ -55,11 +52,39 @@ typedef struct worker_mutex_t {
 #define DEFAULT_PRIO 1
 #define LOW_PRIO 0
 
+/* Priority definitions */
+#define WAITING_STATUS 0
+#define READY_STATUS 1
+#define RUNNING_STATUS 2
+#define BLOCKED_STATUS 3
+
+#define STACK_SIZE SIGSTKSZ
+
+#define MAX_PROCESSES 100
+#define NUM_QUEUES 3
+
 /* define your data structures here: */
 // Feel free to add your own auxiliary data structures (linked list or queue etc...)
 
 // YOUR CODE HERE
+typedef struct {
+    worker_t* items[MAX_PROCESSES];
+    int front;
+    int back;
+} queue_t;
 
+typedef struct {
+	queue_t queues[NUM_QUEUES];
+} linkedlist_t;
+
+typedef struct {
+    linkedlist_t run_queue;
+
+    ucontext_t* main_context; // main context idk where to store this
+    ucontext_t* scheduler_context; // scheduler context
+	void* main_stack; // scheduler context stack
+
+} scheduler_t;
 
 /* Function Declarations: */
 
@@ -89,7 +114,21 @@ int worker_mutex_unlock(worker_mutex_t *mutex);
 /* destroy the mutex */
 int worker_mutex_destroy(worker_mutex_t *mutex);
 
+void q_init(queue_t* q);
 
+void q_enqueue(queue_t* q, worker_t* item);
+
+void q_dequeue(queue_t* q, worker_t* result);
+
+void q_peek(queue_t* q, worker_t* result);
+
+void q_printqueue(queue_t* q);
+
+void sch_init(scheduler_t* scheduler);
+
+void sch_switch();
+
+void sch_schedule(scheduler_t* scheduler, worker_t* thread);
 /* Function to print global statistics. Do not modify this function.*/
 void print_app_stats(void);
 

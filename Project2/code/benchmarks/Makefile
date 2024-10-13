@@ -20,7 +20,8 @@ external_cal:
 	$(CC) $(CFLAGS) -pthread -o external_cal external_cal.c -L../ -lthread-worker
 
 test:
-	$(CC) $(CFLAGS) -pthread -o test test.c -L../ -lthread-worker
+	$(CC) $(CFLAGS) test.c ../thread-worker.c -g -o test
+	# $(CC) $(CFLAGS) -pthread -o test test.c -L../ -lthread-worker
 
 clean:
 	rm -rf testcase test parallel_cal vector_multiply external_cal *.o ./record/ *.dSYM
