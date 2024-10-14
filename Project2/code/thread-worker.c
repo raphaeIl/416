@@ -26,7 +26,9 @@ void thread_function_wrapper(void* arg)
 {
 	t_func(arg);
 
-	printf("going back to scheduler context\n");
+	
+	printf("Finished executing, going back to scheduler context\n");
+	scheduler.current_thread->tcb->status = READY_STATUS;
 	setcontext(scheduler.scheduler_context);
 }
 
@@ -46,33 +48,33 @@ int worker_create(worker_t * thread, pthread_attr_t * attr,
 		sch_init(&scheduler);
 	}
 
-	tcb new_tcb;
+	tcb* new_tcb = malloc(sizeof(tcb));
 
-	new_tcb.threadId = thread_id_counter++;
-	new_tcb.priority = DEFAULT_PRIO;
-	new_tcb.status = WAITING_STATUS;
+	new_tcb->threadId = thread_id_counter++;
+	new_tcb->priority = DEFAULT_PRIO;
+	new_tcb->status = WAITING_STATUS;
 
-	ucontext_t context;
+	ucontext_t* context = malloc(sizeof(ucontext_t));
 
-	if (getcontext(&context) < 0){
+	if (getcontext(context) < 0){
 		perror("getcontext");
 		exit(1);
 	}
 
     // Dynamically allocate a stack
-	new_tcb.stack = malloc(STACK_SIZE);
+	new_tcb->stack = malloc(STACK_SIZE);
 
-	context.uc_link=NULL;
-	context.uc_stack.ss_sp=new_tcb.stack;
-	context.uc_stack.ss_size=STACK_SIZE;
-	context.uc_stack.ss_flags=0;
-	new_tcb.context = &context;
-	thread->tcb = &new_tcb;
+	context->uc_link=NULL;
+	context->uc_stack.ss_sp=new_tcb->stack;
+	context->uc_stack.ss_size=STACK_SIZE;
+	context->uc_stack.ss_flags=0;
+	new_tcb->context = context;
+	thread->tcb = new_tcb;
 
 	t_func = function;
 
-	makecontext(new_tcb.context, (void*)thread_function_wrapper, 1, *((int*)arg));
-	printf("Created new worker thread with id: %d\n", new_tcb.threadId);
+	makecontext(new_tcb->context, (void*)thread_function_wrapper, 1, *((int*)arg));
+	printf("Created new worker thread with id: %d\n", new_tcb->threadId);
 
 	sch_schedule(&scheduler, thread);
 
@@ -105,7 +107,9 @@ int worker_yield() {
 	// - switch from thread context to scheduler context
 
 	// YOUR CODE HERE
-	
+	scheduler.current_thread->tcb->status = READY_STATUS;
+	swapcontext(scheduler.current_thread->tcb->context, scheduler.scheduler_context);
+
 	return 0;
 };
 
@@ -122,7 +126,12 @@ int worker_join(worker_t thread, void **value_ptr) {
 	
 	// - wait for a specific thread to terminate
 	// - de-allocate any dynamic memory created by the joining thread
-  
+	
+	while (thread.tcb->status == RUNNING_STATUS)
+	{
+
+	}
+
 	// YOUR CODE HERE
 	return 0;
 };
@@ -166,8 +175,23 @@ int worker_mutex_destroy(worker_mutex_t *mutex) {
 	return 0;
 };
 
+void timer_schedule_handler(int signum)
+{
+	printf("Timer expired, going back to scheduler context\n");
+
+	if (scheduler.current_thread->tcb->status != READY_STATUS)
+	{
+		printf("Thread has not completed it's work yet, readding it to the run queue for the next quantum\n");
+
+		q_enqueue(scheduler.run_queue->queues[DEFAULT_PRIO], scheduler.current_thread);
+		q_printqueue(scheduler.run_queue->queues[DEFAULT_PRIO]);
+	}
+
+    swapcontext(scheduler.current_thread->tcb->context, scheduler.scheduler_context);  // Swap back to the scheduler context
+}
+
 /* scheduler */
-static void schedule() {
+static void schedule(scheduler_t* scheduler) {
 	// - every time a timer interrupt occurs, your worker thread library 
 	// should be contexted switched from a thread context to this 
 	// schedule() function
@@ -180,6 +204,27 @@ static void schedule() {
 	// 		sched_mlfq();
 
 	// YOUR CODE HERE
+	while (!q_is_empty(scheduler->run_queue->queues[DEFAULT_PRIO]))
+	{
+		printf("[schedule] start\n");
+		worker_t* target_thread = malloc(sizeof(worker_t));
+
+		// determine which thread to run here based on psjf/mlfq
+		// ... (hardcoded for now)
+		q_dequeue(scheduler->run_queue->queues[DEFAULT_PRIO], target_thread);
+		target_thread->tcb->status = RUNNING_STATUS;
+
+		scheduler->current_thread = target_thread;
+
+		printf("switching to thread %d context...\n", scheduler->current_thread->tcb->threadId);
+		
+		swapcontext(scheduler->scheduler_context, scheduler->current_thread->tcb->context);
+		
+		printf("switched back to scheduler context\n");
+
+		swapcontext(scheduler->scheduler_context, scheduler->main_context);
+		printf("now going back to main\n");
+	}
 
 // - schedule policy
 #ifndef MLFQ
@@ -218,6 +263,14 @@ void print_app_stats(void) {
 
 
 // Feel free to add any other functions you need
+void ll_init(linkedlist_t* ll)
+{
+	for (int i = 0; i < NUM_QUEUES; i++) {
+        ll->queues[i] = malloc(sizeof(queue_t));
+		q_init(ll->queues[i]);
+	}
+}
+
 void q_init(queue_t* q)
 {
     q->front = 0;
@@ -227,12 +280,16 @@ void q_init(queue_t* q)
 // YOUR CODE HERE
 void q_enqueue(queue_t* q, worker_t* item)
 {
-    q->items[q->back++] = item;
+	printf("q_enqueue\n");
+    q->items[q->back] = item;
+	q->back++;
 }
 
 void q_dequeue(queue_t* q, worker_t* result)
 {
-	*result = *q->items[q->front++];
+	printf("q_dequeue\n");
+	*result = *q->items[q->front];
+	q->front++;
 }
 
 void q_peek(queue_t* q, worker_t* result)
@@ -248,7 +305,7 @@ int q_is_empty(queue_t* q)
 void q_printqueue(queue_t* q)
 {
 	printf("Queue: front: %d, back: %d\n", q->front, q->back);
-    for (int i = q->front; i < q->back; i++)
+    for (int i = q->front; i != q->back; i++)
     {
 		tcb* curr = q->items[i]->tcb;
 
@@ -258,6 +315,9 @@ void q_printqueue(queue_t* q)
 
 void sch_init(scheduler_t* scheduler)
 {
+	scheduler->run_queue = malloc(sizeof(linkedlist_t));
+	ll_init(scheduler->run_queue);
+
     scheduler->scheduler_context = malloc(sizeof(ucontext_t));
 	getcontext(scheduler->scheduler_context);
 
@@ -268,37 +328,35 @@ void sch_init(scheduler_t* scheduler)
     scheduler->scheduler_context->uc_stack.ss_size = STACK_SIZE;
     scheduler->scheduler_context->uc_stack.ss_flags = 0;
 
-    makecontext(scheduler->scheduler_context, (void (*)(void))sch_switch, 1, scheduler);
-}
+    makecontext(scheduler->scheduler_context, (void (*)(void))schedule, 1, scheduler);
 
-void sch_switch(scheduler_t* scheduler)
-{
-	while (1)
-	{
-		worker_t target_thread;
-
-		// determine which thread to run here based on psjf/mlfq
-		// ... (hardcoded for now)
-		q_dequeue(&scheduler->run_queue.queues[DEFAULT_PRIO], &target_thread);
-
-		printf("switching to thread %d context...\n", target_thread.tcb->threadId);
-		swapcontext(scheduler->scheduler_context, target_thread.tcb->context);
-		
-		printf("switched back to scheduler context\n");
-
-		swapcontext(scheduler->scheduler_context, scheduler->main_context);
-		printf("now going back to main\n");
-	}
-
-
+	// set a timer that will run for TIME_QUANTUM which swaps back when expired 
+	create_timer(TIME_QUANTUM, 1, timer_schedule_handler);
 }
 
 void sch_schedule(scheduler_t* scheduler, worker_t* thread)
 {
-	q_enqueue(&scheduler->run_queue.queues[thread->tcb->priority], thread);
+	q_enqueue(scheduler->run_queue->queues[DEFAULT_PRIO], thread);
 
-	printf("swapcontext\n");
     scheduler->main_context = malloc(sizeof(ucontext_t));
 
 	swapcontext(scheduler->main_context, scheduler->scheduler_context);
+}
+
+void create_timer(time_t duration, int repeat, __sighandler_t on_expire_handler)
+{
+	struct sigaction sa;
+    struct itimerval timer;
+
+    sa.sa_handler = on_expire_handler;
+    sa.sa_flags = SA_RESTART;
+    sigaction(SIGALRM, &sa, NULL);
+
+    timer.it_value.tv_sec = duration;
+    timer.it_value.tv_usec = 0;
+    
+    timer.it_interval.tv_sec = repeat ? duration : 0;
+    timer.it_interval.tv_usec = 0;
+
+    setitimer(ITIMER_REAL, &timer, NULL);
 }

@@ -17,6 +17,18 @@
 void run(int i)
 {
 	printf("[thread content]: running thread %d...\n", i);
+	
+	// simulating a lot of work (this takes like 5 seconds)
+	int a = 0;
+	for (int i = 0; i < 10000; i++)
+	{
+		for (int j = 0; j < 50000; j++)
+		{
+			a += 1;
+		}
+	}
+
+	printf("result: %d\n", a);
 }
 
 int main(int argc, char **argv) {
@@ -38,5 +50,13 @@ int main(int argc, char **argv) {
 	worker_t thread3;
     *arg = 3;
 	worker_create(&thread3, NULL, (void*)&run, arg);
+	
+	printf("back to main thread, thread3 done\n");
+	
+	
+	printf("continue other work...\n");
+
+	while(1) {}
+
 	return 0;
 }

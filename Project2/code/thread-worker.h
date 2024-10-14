@@ -20,6 +20,8 @@
 #include <stdlib.h>
 #include <ucontext.h>
 #include <signal.h>
+#include <sys/time.h>
+#include <string.h>
 
 typedef struct TCB {
 	/* add important states in a thread control block */
@@ -63,6 +65,8 @@ typedef struct worker_mutex_t {
 #define MAX_PROCESSES 100
 #define NUM_QUEUES 3
 
+#define TIME_QUANTUM 1
+
 /* define your data structures here: */
 // Feel free to add your own auxiliary data structures (linked list or queue etc...)
 
@@ -74,16 +78,17 @@ typedef struct {
 } queue_t;
 
 typedef struct {
-	queue_t queues[NUM_QUEUES];
+	queue_t* queues[NUM_QUEUES];
 } linkedlist_t;
 
 typedef struct {
-    linkedlist_t run_queue;
+    linkedlist_t* run_queue;
 
     ucontext_t* main_context; // main context idk where to store this
     ucontext_t* scheduler_context; // scheduler context
 	void* main_stack; // scheduler context stack
 
+	worker_t* current_thread; // currently running thread;
 } scheduler_t;
 
 /* Function Declarations: */
@@ -114,6 +119,8 @@ int worker_mutex_unlock(worker_mutex_t *mutex);
 /* destroy the mutex */
 int worker_mutex_destroy(worker_mutex_t *mutex);
 
+void ll_init(linkedlist_t* ll);
+
 void q_init(queue_t* q);
 
 void q_enqueue(queue_t* q, worker_t* item);
@@ -121,6 +128,8 @@ void q_enqueue(queue_t* q, worker_t* item);
 void q_dequeue(queue_t* q, worker_t* result);
 
 void q_peek(queue_t* q, worker_t* result);
+
+int q_is_empty(queue_t* q);
 
 void q_printqueue(queue_t* q);
 
@@ -131,6 +140,9 @@ void sch_switch();
 void sch_schedule(scheduler_t* scheduler, worker_t* thread);
 /* Function to print global statistics. Do not modify this function.*/
 void print_app_stats(void);
+
+/* Util Functions */
+void create_timer(time_t duration, int repeat, __sighandler_t on_expire_handler);
 
 #ifdef USE_WORKERS
 #define pthread_t worker_t
