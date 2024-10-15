@@ -26,13 +26,22 @@ void simulate_short_task(void* i)
 		for (int j = 0; j < 1000; j++)
 		{
 			a += 1;
+
+			/* Test code for yielding, proof that it works: notice that with yielding, 
+			   the logs show that this short task ran for 2 time quantums instead of 1 (when time quantum = 1 second)
+			if (a == 1234) 
+			{
+				a = 2000;
+				worker_yield();
+			}
+			*/
+
 			// printf("short task %d: %d\n", arg_i, a);
 		}
 	}
 	
 	printf("thread %d result: %d\n", arg_i, a);
 }
-
 
 void simulate_long_task(void* i)
 {
@@ -53,37 +62,36 @@ void simulate_long_task(void* i)
 	printf("thread %d result: %d\n", arg_i, a);
 }
 
-
 int main(int argc, char **argv) {
 	/* Implement HERE */
 	int *arg1 = malloc(sizeof(int));
 
-	worker_t* thread = malloc(sizeof(worker_t));
+	worker_t thread1;
     *arg1 = 1;
-	worker_create(thread, NULL, (void*)&simulate_short_task, arg1);
+	worker_create(&thread1, NULL, (void*)&simulate_short_task, arg1);
 
-	printf("back to main thread, thread1 started\n");
+	printf("back to main thread, thread %d created and started\n", thread1);
 
 	int *arg2 = malloc(sizeof(int));
-	worker_t* thread2 = malloc(sizeof(worker_t));
+	worker_t thread2;
 
     *arg2 = 2;
-	worker_create(thread2, NULL, (void*)&simulate_long_task, arg2);
+	worker_create(&thread2, NULL, (void*)&simulate_long_task, arg2);
 
-	printf("back to main thread, thread2 started\n");
+	printf("back to main thread, thread %d created and started\n", thread2);
 
 	int *arg3 = malloc(sizeof(int));
-	worker_t* thread3 = malloc(sizeof(worker_t));
+	worker_t thread3;
 
     *arg3 = 3;
-	worker_create(thread3, NULL, (void*)&simulate_long_task, arg3);
+	worker_create(&thread3, NULL, (void*)&simulate_long_task, arg3);
+	printf("back to main thread, thread %d created and started\n", thread3);
 	
-	printf("back to main thread, thread3 started\n");
-	
-	
-	printf("continue other work...\n");
+	printf("joining threads...\n");
+	worker_join(thread1, NULL);
 
-	while(1) {}
+
+	printf("main thread done\n");
 
 	return 0;
 }

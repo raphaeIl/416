@@ -5,14 +5,11 @@
 // iLab Server:
 #include "thread-worker.h"
 
-typedef void *(*thread_function)(void*);
-
 //Global counter for total context switches and 
 //average turn around and response time
 long tot_cntx_switches=0;
 double avg_turn_time=0;
 double avg_resp_time=0;
-
 
 // INITAILIZE ALL YOUR OTHER VARIABLES HERE
 // YOUR CODE HERE
@@ -27,10 +24,8 @@ void thread_function_wrapper(void* arg)
 	// call the original worker function
 	wrapper_data->original_function(wrapper_data->original_args);
 
-	printf("%d Finished executing, going back to scheduler context\n", scheduler.current_thread->tcb->threadId);
-	scheduler.current_thread->tcb->status = READY_STATUS;
-	// setcontext(scheduler.scheduler_context);
-	// swapcontext(scheduler.current_thread->tcb->context, scheduler.scheduler_context);
+	printf("%d Finished executing, going back to scheduler context\n", scheduler.current_thread->threadId);
+	scheduler.current_thread->status = FINISHED_STATUS;
 }
 
 /* create a new thread */
@@ -70,7 +65,7 @@ int worker_create(worker_t * thread, pthread_attr_t * attr,
 	context->uc_stack.ss_size=STACK_SIZE;
 	context->uc_stack.ss_flags=0;
 	new_tcb->context = context;
-	thread->tcb = new_tcb;
+	*thread = new_tcb->threadId;
 
 	worker_wrapper_t *wrapper_data = malloc(sizeof(worker_wrapper_t));
 
@@ -80,7 +75,7 @@ int worker_create(worker_t * thread, pthread_attr_t * attr,
 	makecontext(new_tcb->context, (void*)thread_function_wrapper, 1, wrapper_data);
 	printf("Created new worker thread with id: %d\n", new_tcb->threadId);
 
-	sch_schedule(&scheduler, thread);
+	sch_schedule(&scheduler, new_tcb);
     return 0;
 };
 
@@ -108,8 +103,17 @@ int worker_yield() {
 	// - switch from thread context to scheduler context
 
 	// YOUR CODE HERE
-	scheduler.current_thread->tcb->status = READY_STATUS;
-	swapcontext(scheduler.current_thread->tcb->context, scheduler.scheduler_context);
+
+	if (scheduler.current_thread == NULL)
+	{
+		// printf("no thread is running, cannot yield\n");
+		return 1;
+	}
+
+	scheduler.current_thread->status = READY_STATUS;
+
+	printf("yielding thread id: %d\n", scheduler.current_thread->threadId);
+	swapcontext(scheduler.current_thread->context, scheduler.scheduler_context);
 
 	return 0;
 };
@@ -124,13 +128,17 @@ void worker_exit(void *value_ptr) {
 
 /* Wait for thread termination */
 int worker_join(worker_t thread, void **value_ptr) {
-	
+
 	// - wait for a specific thread to terminate
 	// - de-allocate any dynamic memory created by the joining thread
-	
-	while (thread.tcb->status == RUNNING_STATUS)
-	{
 
+	// hardcoded for now, change later
+	printf("joining thread id: %d\n", thread);
+	tcb* target_thread = scheduler.run_queue->queues[DEFAULT_PRIO]->threads[thread];
+
+	while (target_thread->status != FINISHED_STATUS)
+	{
+		worker_yield();
 	}
 
 	// YOUR CODE HERE
@@ -180,23 +188,13 @@ void timer_schedule_handler(int signum)
 {
 	printf("Timer expired, going back to scheduler context\n");
 
-	// if (scheduler.current_thread->tcb->status != READY_STATUS)
-	// {
-		// printf("Thread has not completed it's work yet, readding it to the run queue for the next quantum\n");
-
-		// q_enqueue(scheduler.run_queue->queues[DEFAULT_PRIO], scheduler.current_thread);
-	// 	q_printqueue(scheduler.run_queue->queues[DEFAULT_PRIO]);
-	// }
-
-	ucontext_t curr;
-
 	if (scheduler.current_thread == NULL)
 	{
-	    swapcontext(&curr, scheduler.scheduler_context);  // Swap back to the scheduler context
+	    setcontext(scheduler.scheduler_context);  // Swap back to the scheduler context
 	}
 	else
 	{
-	    swapcontext(scheduler.current_thread->tcb->context, scheduler.scheduler_context);  // Swap back to the scheduler context
+	    swapcontext(scheduler.current_thread->context, scheduler.scheduler_context);  // Swap back to the scheduler context
 	}
 }
 
@@ -217,8 +215,6 @@ static void schedule(scheduler_t* scheduler) {
 	// !q_is_empty(scheduler->run_queue->queues[DEFAULT_PRIO])
 	while (1)
 	{
-		// printf("[schedule] start\n");
-
 		// determine which thread to run here based on psjf/mlfq
 		// ... (hardcoded for now)
 
@@ -228,14 +224,14 @@ static void schedule(scheduler_t* scheduler) {
 			continue;
 		}
 
-		worker_t* target_thread = q_dequeue(scheduler->run_queue->queues[DEFAULT_PRIO]);
-		q_printqueue(scheduler->run_queue->queues[DEFAULT_PRIO]);
-		// target_thread->tcb->status = RUNNING_STATUS;
+		tcb* target_thread = q_dequeue(scheduler->run_queue->queues[DEFAULT_PRIO]);
+		// q_printqueue(scheduler->run_queue->queues[DEFAULT_PRIO]);
 
 		scheduler->current_thread = target_thread;
+		scheduler->current_thread->status = RUNNING_STATUS;
 
-		printf("switching to thread %d context...\n", scheduler->current_thread->tcb->threadId);
-		swapcontext(scheduler->scheduler_context, scheduler->current_thread->tcb->context);
+		printf("switching to thread %d context...\n", scheduler->current_thread->threadId);
+		swapcontext(scheduler->scheduler_context, scheduler->current_thread->context);
 		printf("switched back to scheduler context\n");
 
 		if (scheduler->current_thread == NULL)
@@ -243,26 +239,21 @@ static void schedule(scheduler_t* scheduler) {
 			continue;
 		}
 		
-		if (scheduler->current_thread->tcb->status == RUNNING_STATUS)
+		if (scheduler->current_thread->status == RUNNING_STATUS || scheduler->current_thread->status == READY_STATUS)
 		{
 			printf("current thread has not completed it's work yet, readding it to the run queue for the next quantum\n");
 
+			scheduler->current_thread->status = READY_STATUS;
 			q_enqueue(scheduler->run_queue->queues[DEFAULT_PRIO], scheduler->current_thread);
 		}
 
-		else if (scheduler->current_thread->tcb->status == READY_STATUS)
+		else if (scheduler->current_thread->status == FINISHED_STATUS)
 		{
 			printf("now going back to main\n");
 			scheduler->current_thread = NULL;
-			q_printqueue(scheduler->run_queue->queues[DEFAULT_PRIO]);
-
-			if (q_is_empty(scheduler->run_queue->queues[DEFAULT_PRIO]))
-			{
-				printf("swap main context\n");
-				// swapcontext(scheduler->scheduler_context, scheduler->main_context);
-			}
-
 		}
+
+		// swapcontext(scheduler->scheduler_context, scheduler->main_context);
 	}
 
 // - schedule policy
@@ -317,24 +308,22 @@ void q_init(queue_t* q)
 }
 
 // YOUR CODE HERE
-void q_enqueue(queue_t* q, worker_t* item)
+void q_enqueue(queue_t* q, tcb* item)
 {
-	printf("q_enqueue\n");
-    q->items[q->back] = item;
+    q->threads[q->back] = item;
 	q->back++;
 }
 
-worker_t* q_dequeue(queue_t* q)
+tcb* q_dequeue(queue_t* q)
 {
-	printf("q_dequeue\n");
-    worker_t* item = q->items[q->front];
+    tcb* thread = q->threads[q->front];
     q->front++;
-    return item;
+    return thread;
 }
 
-void q_peek(queue_t* q, worker_t* result)
+tcb* q_peek(queue_t* q)
 {
-    *result = *q->items[q->front];
+	return q->threads[q->front];
 }
 
 int q_is_empty(queue_t* q)
@@ -347,7 +336,7 @@ void q_printqueue(queue_t* q)
 	printf("Queue: front: %d, back: %d\n", q->front, q->back);
     for (int i = q->front; i != q->back; i++)
     {
-		tcb* curr = q->items[i]->tcb;
+		tcb* curr = q->threads[i];
 
         printf("%d - threadId: %d, status: %d\n", i, curr->threadId, curr->status);
     }
@@ -360,10 +349,7 @@ void sch_init(scheduler_t* scheduler)
 	ll_init(scheduler->run_queue);
 
     scheduler->main_context = malloc(sizeof(ucontext_t));
-
-    if (getcontext(scheduler->main_context) < 0) {
-		printf("failed to get main context\n");
-    }
+	getcontext(scheduler->main_context);
 
     scheduler->scheduler_context = malloc(sizeof(ucontext_t));
 	getcontext(scheduler->scheduler_context);
@@ -382,13 +368,13 @@ void sch_init(scheduler_t* scheduler)
 	create_timer(TIME_QUANTUM, 1, timer_schedule_handler);
 }
 
-void sch_schedule(scheduler_t* scheduler, worker_t* thread)
+void sch_schedule(scheduler_t* scheduler, tcb* thread)
 {
-	thread->tcb->status = RUNNING_STATUS;
+	thread->status = READY_STATUS;
 	q_enqueue(scheduler->run_queue->queues[DEFAULT_PRIO], thread);
 }
 
-void create_timer(time_t duration, int repeat, __sighandler_t on_expire_handler)
+void create_timer(suseconds_t duration_ms, int repeat, __sighandler_t on_expire_handler)
 {
 	struct sigaction sa;
     struct itimerval timer;
@@ -398,10 +384,10 @@ void create_timer(time_t duration, int repeat, __sighandler_t on_expire_handler)
     sigaction(SIGALRM, &sa, NULL);
 
     timer.it_value.tv_sec = 0;
-    timer.it_value.tv_usec = 900000;
+    timer.it_value.tv_usec = duration_ms * 1000;
     
     timer.it_interval.tv_sec = 0;
-    timer.it_interval.tv_usec = 900000;
+    timer.it_interval.tv_usec = repeat ? duration_ms * 1000 : 0;
 
     setitimer(ITIMER_REAL, &timer, NULL);
 }
