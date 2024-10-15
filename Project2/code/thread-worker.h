@@ -86,10 +86,22 @@ typedef struct {
 
     ucontext_t* main_context; // main context idk where to store this
     ucontext_t* scheduler_context; // scheduler context
-	void* main_stack; // scheduler context stack
+	void* scheduler_stack; // scheduler context stack
 
 	worker_t* current_thread; // currently running thread;
 } scheduler_t;
+
+/*
+	a wrapper like this is necessary since i don't think we can just pass our original
+	thread function like `simulate_long_task` directly into makecontext because at the end
+	of the function we need to swap the context back so i'm adding a wrapper to do that: thread_function_wrapper
+	
+	there is probably a better solutinon to this lol
+ */ 
+typedef struct {
+	void *(*original_function)(void*); // original worker function (for example: simulate_long_task)
+	int* original_args;  // original function's args
+} worker_wrapper_t;
 
 /* Function Declarations: */
 
@@ -125,7 +137,7 @@ void q_init(queue_t* q);
 
 void q_enqueue(queue_t* q, worker_t* item);
 
-void q_dequeue(queue_t* q, worker_t* result);
+worker_t* q_dequeue(queue_t* q);
 
 void q_peek(queue_t* q, worker_t* result);
 
