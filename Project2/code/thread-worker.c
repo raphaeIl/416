@@ -26,6 +26,7 @@ void thread_function_wrapper(void* arg)
 
 	printf("%d Finished executing, going back to scheduler context\n", scheduler.current_thread->threadId);
 	scheduler.current_thread->status = FINISHED_STATUS;
+	printf("status: %d\n", scheduler.current_thread->status);
 }
 
 /* create a new thread */
@@ -122,6 +123,10 @@ int worker_yield() {
 void worker_exit(void *value_ptr) {
 	// - de-allocate any dynamic memory created when starting this thread
 
+	scheduler.current_thread->status = FINISHED_STATUS;
+
+	printf("exiting thread id: %d\n", scheduler.current_thread->threadId);
+	swapcontext(scheduler.current_thread->context, scheduler.scheduler_context);
 	// YOUR CODE HERE
 };
 
@@ -134,11 +139,12 @@ int worker_join(worker_t thread, void **value_ptr) {
 
 	// hardcoded for now, change later
 	printf("joining thread id: %d\n", thread);
-	tcb* target_thread = scheduler.run_queue->queues[DEFAULT_PRIO]->threads[thread];
+	tcb* target_thread = scheduler.run_queue->queues[DEFAULT_PRIO]->threads[thread + 1];
 
 	while (target_thread->status != FINISHED_STATUS)
 	{
 		worker_yield();
+		// printf("thread %d status: %d\n", target_thread->threadId, target_thread->status);
 	}
 
 	// YOUR CODE HERE
@@ -190,7 +196,7 @@ void timer_schedule_handler(int signum)
 
 	if (scheduler.current_thread == NULL)
 	{
-	    setcontext(scheduler.scheduler_context);  // Swap back to the scheduler context
+	    swapcontext(scheduler.main_context, scheduler.scheduler_context);  // Swap back to the scheduler context
 	}
 	else
 	{
@@ -349,7 +355,17 @@ void sch_init(scheduler_t* scheduler)
 	ll_init(scheduler->run_queue);
 
     scheduler->main_context = malloc(sizeof(ucontext_t));
+
 	getcontext(scheduler->main_context);
+
+	scheduler->main_thread = malloc(sizeof(tcb));
+
+	scheduler->main_thread->threadId = 69;
+	scheduler->main_thread->priority = DEFAULT_PRIO;
+	scheduler->main_thread->status = READY_STATUS;
+	scheduler->main_thread->context = scheduler->main_context;
+	
+	sch_schedule(scheduler, scheduler->main_thread);
 
     scheduler->scheduler_context = malloc(sizeof(ucontext_t));
 	getcontext(scheduler->scheduler_context);

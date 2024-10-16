@@ -87,6 +87,7 @@ typedef struct {
     ucontext_t* scheduler_context; // scheduler context
 	void* scheduler_stack; // scheduler context stack
 
+	tcb* main_thread;
 	tcb* current_thread; // currently running thread;
 } scheduler_t;
 

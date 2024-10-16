@@ -55,6 +55,15 @@ void simulate_long_task(void* i)
 		for (int j = 0; j < 100000; j++)
 		{
 			a += 1;
+
+			// Test code for exiting, notice that if we exit at some point, 
+			// the long task thread exits immediately and the whole program terminates (with thread2 joined)
+			/*
+			if (a == 1234) 
+			{
+				worker_exit(NULL);
+			}
+			*/
 			// printf("long task %d: %d\n", arg_i, a);
 		}
 	}
@@ -88,10 +97,13 @@ int main(int argc, char **argv) {
 	printf("back to main thread, thread %d created and started\n", thread3);
 	
 	printf("joining threads...\n");
-	worker_join(thread1, NULL);
-
+	worker_join(thread2, NULL);
 
 	printf("main thread done\n");
+
+	// while (1)
+	// {
+	// }
 
 	return 0;
 }
