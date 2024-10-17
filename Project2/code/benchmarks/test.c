@@ -77,7 +77,7 @@ int main(int argc, char **argv) {
 
 	worker_t thread1;
     *arg1 = 1;
-	worker_create(&thread1, NULL, (void*)&simulate_short_task, arg1);
+	pthread_create(&thread1, NULL, (void*)&simulate_short_task, arg1);
 
 	printf("back to main thread, thread %d created and started\n", thread1);
 
@@ -85,7 +85,7 @@ int main(int argc, char **argv) {
 	worker_t thread2;
 
     *arg2 = 2;
-	worker_create(&thread2, NULL, (void*)&simulate_long_task, arg2);
+	pthread_create(&thread2, NULL, (void*)&simulate_long_task, arg2);
 
 	printf("back to main thread, thread %d created and started\n", thread2);
 
@@ -93,11 +93,11 @@ int main(int argc, char **argv) {
 	worker_t thread3;
 
     *arg3 = 3;
-	worker_create(&thread3, NULL, (void*)&simulate_long_task, arg3);
+	pthread_create(&thread3, NULL, (void*)&simulate_long_task, arg3);
 	printf("back to main thread, thread %d created and started\n", thread3);
 	
 	printf("joining threads...\n");
-	worker_join(thread2, NULL);
+	pthread_join(thread2, NULL);
 
 	printf("main thread done\n");
 

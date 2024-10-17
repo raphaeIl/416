@@ -105,7 +105,7 @@ int worker_yield() {
 
 	// YOUR CODE HERE
 
-	if (scheduler.current_thread == NULL)
+	if (scheduler.current_thread == NULL || scheduler.current_thread->status == BLOCKED_STATUS)
 	{
 		// printf("no thread is running, cannot yield\n");
 		return 1;
@@ -157,19 +157,36 @@ int worker_mutex_init(worker_mutex_t *mutex,
 	//- initialize data structures for this mutex
 
 	// YOUR CODE HERE
+	mutex->locked = 0;
+	mutex->owner = -1;
+	mutex->blocked_threads = malloc(sizeof(queue_t));
+
+	q_init(mutex->blocked_threads);
 	return 0;
 };
 
 /* aquire the mutex lock */
 int worker_mutex_lock(worker_mutex_t *mutex) {
+	
+	// - use the built-in test-and-set atomic function to test the mutex
+	// - if the mutex is acquired successfully, enter the critical section
+	// - if acquiring mutex fails, push current thread into block list and
+	// context switch to the scheduler thread
 
-        // - use the built-in test-and-set atomic function to test the mutex
-        // - if the mutex is acquired successfully, enter the critical section
-        // - if acquiring mutex fails, push current thread into block list and
-        // context switch to the scheduler thread
+	// YOUR CODE HERE
+	if (__sync_lock_test_and_set(&mutex->locked, 1)) // this will keep running until lock becomes available
+	{
+		printf("Thread is currentlyy locked, can not enter critical section\n");
+		
+		scheduler.current_thread->status = BLOCKED_STATUS;
+		q_enqueue(mutex->blocked_threads, scheduler.current_thread);
+		worker_yield();
+		return 1;
+	}
 
-        // YOUR CODE HERE
-        return 0;
+	// mutex acquired, enter critical section
+	mutex->owner = scheduler.current_thread->threadId;
+	return 0;
 };
 
 /* release the mutex lock */
@@ -179,6 +196,14 @@ int worker_mutex_unlock(worker_mutex_t *mutex) {
 	// so that they could compete for mutex later.
 
 	// YOUR CODE HERE
+	__sync_lock_release(&mutex->locked);
+	mutex->owner = -1;
+
+	while (!q_is_empty(mutex->blocked_threads))
+	{
+		sch_schedule(&scheduler, q_dequeue(mutex->blocked_threads));
+	}
+
 	return 0;
 };
 
@@ -186,6 +211,7 @@ int worker_mutex_unlock(worker_mutex_t *mutex) {
 /* destroy the mutex */
 int worker_mutex_destroy(worker_mutex_t *mutex) {
 	// - de-allocate dynamic memory created in worker_mutex_init
+	q_destroy(mutex->blocked_threads);
 
 	return 0;
 };
@@ -253,7 +279,7 @@ static void schedule(scheduler_t* scheduler) {
 			q_enqueue(scheduler->run_queue->queues[DEFAULT_PRIO], scheduler->current_thread);
 		}
 
-		else if (scheduler->current_thread->status == FINISHED_STATUS)
+		else if (scheduler->current_thread->status == FINISHED_STATUS || scheduler->current_thread->status == BLOCKED_STATUS)
 		{
 			printf("now going back to main\n");
 			scheduler->current_thread = NULL;
@@ -346,6 +372,11 @@ void q_printqueue(queue_t* q)
 
         printf("%d - threadId: %d, status: %d\n", i, curr->threadId, curr->status);
     }
+}
+
+void q_destroy(queue_t* q)
+{
+	free(q);
 }
 
 void sch_init(scheduler_t* scheduler)

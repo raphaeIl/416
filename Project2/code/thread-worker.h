@@ -24,6 +24,7 @@
 #include <string.h>
 
 typedef uint worker_t;
+typedef struct queue_t queue_t;
 
 typedef struct TCB {
 	/* add important states in a thread control block */
@@ -40,7 +41,10 @@ typedef struct TCB {
 /* mutex struct definition */
 typedef struct worker_mutex_t {
 	/* add something here */
+	int locked;
+	worker_t owner;
 
+	queue_t* blocked_threads;
 // YOUR CODE HERE
 } worker_mutex_t;
 
@@ -70,11 +74,11 @@ typedef struct worker_mutex_t {
 // Feel free to add your own auxiliary data structures (linked list or queue etc...)
 
 // YOUR CODE HERE
-typedef struct {
+struct queue_t{
     tcb* threads[MAX_THREADS];
     int front;
     int back;
-} queue_t;
+};
 
 typedef struct {
 	queue_t* queues[NUM_QUEUES];
@@ -144,6 +148,8 @@ tcb* q_peek(queue_t* q);
 int q_is_empty(queue_t* q);
 
 void q_printqueue(queue_t* q);
+
+void q_destroy(queue_t* q);
 
 void sch_init(scheduler_t* scheduler);
 
