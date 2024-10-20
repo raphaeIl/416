@@ -14,6 +14,7 @@ double avg_resp_time=0;
 // INITAILIZE ALL YOUR OTHER VARIABLES HERE
 // YOUR CODE HERE
 int thread_id_counter = 0;
+int time_quantum_counter = 0;
 
 scheduler_t scheduler;
 
@@ -26,7 +27,7 @@ void thread_function_wrapper(void* arg)
 
 	printf("%d Finished executing, going back to scheduler context\n", scheduler.current_thread->threadId);
 	scheduler.current_thread->status = FINISHED_STATUS;
-	printf("status: %d\n", scheduler.current_thread->status);
+	// printf("status: %d\n", scheduler.current_thread->status);
 }
 
 /* create a new thread */
@@ -43,6 +44,12 @@ int worker_create(worker_t * thread, pthread_attr_t * attr,
 	if (thread_id_counter == 0) // this means it is the first ever call to worker_create
 	{
 		sch_init(&scheduler);
+	}
+
+	if (thread_id_counter >= MAX_THREADS - 1)
+	{
+		printf("Maximum number of threads allowed reached, please adjust MAX_THREADS");
+		return -1;
 	}
 
 	tcb* new_tcb = malloc(sizeof(tcb));
@@ -76,6 +83,7 @@ int worker_create(worker_t * thread, pthread_attr_t * attr,
 	makecontext(new_tcb->context, (void*)thread_function_wrapper, 1, wrapper_data);
 	printf("Created new worker thread with id: %d\n", new_tcb->threadId);
 
+	scheduler.thread_table[new_tcb->threadId] = new_tcb;
 	sch_schedule(&scheduler, new_tcb);
     return 0;
 };
@@ -85,12 +93,11 @@ int worker_create(worker_t * thread, pthread_attr_t * attr,
 /* This function gets called only for MLFQ scheduling set the worker priority. */
 int worker_setschedprio(worker_t thread, int prio) {
 
-
    // Set the priority value to your thread's TCB
    // YOUR CODE HERE
+	scheduler.thread_table[thread]->priority = prio;
 
    return 0;	
-
 }
 #endif
 
@@ -119,7 +126,7 @@ int worker_yield() {
 	return 0;
 };
 
-/* terminate a thread */
+/* terminate a thread */  // ptr that is saved
 void worker_exit(void *value_ptr) {
 	// - de-allocate any dynamic memory created when starting this thread
 
@@ -131,15 +138,18 @@ void worker_exit(void *value_ptr) {
 };
 
 
-/* Wait for thread termination */
+// need tcb* in struct tcb for threads that the current threads are waiting, curr=t3->join(t1): tcb(t3)->joined_thread = t1, meaning that t3 will need to wait for t1 and t3 will be blocked
+/* Wait for thread termination */     // ptr that needs to be set with the worker_exit() return value of the thread
 int worker_join(worker_t thread, void **value_ptr) {
 
 	// - wait for a specific thread to terminate
 	// - de-allocate any dynamic memory created by the joining thread
 
+
 	// hardcoded for now, change later
 	printf("joining thread id: %d\n", thread);
-	tcb* target_thread = scheduler.run_queue->queues[DEFAULT_PRIO]->threads[thread + 1];
+	// tcb* target_thread = scheduler.run_queue->queues[DEFAULT_PRIO]->threads[thread + 1];
+	tcb* target_thread = scheduler.thread_table[thread]; // find thread by id
 
 	while (target_thread->status != FINISHED_STATUS)
 	{
@@ -215,7 +225,7 @@ int worker_mutex_destroy(worker_mutex_t *mutex) {
 
 	return 0;
 };
-
+// turn this off when updating scheduler_t or anything, no looping
 void timer_schedule_handler(int signum)
 {
 	printf("Timer expired, going back to scheduler context\n");
@@ -228,6 +238,22 @@ void timer_schedule_handler(int signum)
 	{
 	    swapcontext(scheduler.current_thread->context, scheduler.scheduler_context);  // Swap back to the scheduler context
 	}
+
+	time_quantum_counter++;
+
+	if (time_quantum_counter % REFRESH_QUANTUM == 0) // refresh time reached, move LOW_PRIO threads to HIGH_PRIO
+	{
+		printf("Refresh timer expired, moving low prio -> high\n");
+		queue_t* low_prio_q = scheduler.run_queue->queues[LOW_PRIO];
+
+		while (!q_is_empty(low_prio_q))
+		{
+			q_enqueue(scheduler.run_queue->queues[HIGH_PRIO], q_dequeue(low_prio_q));
+		}
+
+		ll_printlist(scheduler.run_queue);
+	}
+
 }
 
 /* scheduler */
@@ -250,15 +276,16 @@ static void schedule(scheduler_t* scheduler) {
 		// determine which thread to run here based on psjf/mlfq
 		// ... (hardcoded for now)
 
-		if (q_is_empty(scheduler->run_queue->queues[DEFAULT_PRIO]))
+		if (ll_is_all_empty(scheduler->run_queue))
 		{
 			// no threads scheduled, so skip
 			continue;
 		}
 
-		tcb* target_thread = q_dequeue(scheduler->run_queue->queues[DEFAULT_PRIO]);
-		// q_printqueue(scheduler->run_queue->queues[DEFAULT_PRIO]);
+		ll_printlist(scheduler->run_queue);
 
+		tcb* target_thread = q_dequeue(scheduler->run_queue->queues[ll_get_index_highest_nonempty(scheduler->run_queue)]);
+		
 		scheduler->current_thread = target_thread;
 		scheduler->current_thread->status = RUNNING_STATUS;
 
@@ -276,11 +303,22 @@ static void schedule(scheduler_t* scheduler) {
 			printf("current thread has not completed it's work yet, readding it to the run queue for the next quantum\n");
 
 			scheduler->current_thread->status = READY_STATUS;
-			q_enqueue(scheduler->run_queue->queues[DEFAULT_PRIO], scheduler->current_thread);
+
+
+			// MLFQ: move the thread to the next lower runqueue priority
+			#ifdef MLFQ
+				printf("using MLFQ\n");
+				int index_lower_q = scheduler->current_thread->priority - 1 > LOW_PRIO ? scheduler->current_thread->priority - 1 : LOW_PRIO;
+				q_enqueue(scheduler->run_queue->queues[index_lower_q], scheduler->current_thread);
+			#else
+				q_enqueue(scheduler->run_queue->queues[DEFAULT_PRIO], scheduler->current_thread);
+			#endif	
+
 		}
 
 		else if (scheduler->current_thread->status == FINISHED_STATUS || scheduler->current_thread->status == BLOCKED_STATUS)
 		{
+			// need a seperate queue for finished threads to be processed when join
 			printf("now going back to main\n");
 			scheduler->current_thread = NULL;
 		}
@@ -327,10 +365,62 @@ void print_app_stats(void) {
 // Feel free to add any other functions you need
 void ll_init(linkedlist_t* ll)
 {
-	for (int i = 0; i < NUM_QUEUES; i++) {
+	for (int i = 0; i < NUMPRIO; i++) {
         ll->queues[i] = malloc(sizeof(queue_t));
 		q_init(ll->queues[i]);
 	}
+}
+
+int ll_is_all_empty(linkedlist_t* ll)
+{
+	for (int i = 0; i < NUMPRIO; i++)
+	{
+		if (!q_is_empty(ll->queues[i]))
+		{
+			return 0;
+		}
+
+	}
+
+	return 1;
+}
+
+
+int ll_get_index_highest_nonempty(linkedlist_t* ll)
+{
+	for (int i = NUMPRIO - 1; i >= 0; i--)
+	{
+		if (!q_is_empty(ll->queues[i]))
+		{
+			return i;
+		}
+	}
+
+	return -1;
+}
+
+void ll_printlist(linkedlist_t* ll)
+{
+	timer_disable();
+
+	printf("\n-------------Run Queue Status-------------\n");
+	printf("High Priority:\n");
+	q_printqueue(ll->queues[HIGH_PRIO]);
+	printf("\n");
+
+	printf("Medium Priority:\n");
+	q_printqueue(ll->queues[MEDIUM_PRIO]);
+	printf("\n");
+
+	printf("Default Priority:\n");
+	q_printqueue(ll->queues[DEFAULT_PRIO]);
+	printf("\n");
+
+	printf("Low Priority:\n");
+	q_printqueue(ll->queues[LOW_PRIO]);
+	printf("------------------------------------------\n");
+
+	create_timer(TIME_QUANTUM, 1, timer_schedule_handler);
 }
 
 void q_init(queue_t* q)
@@ -342,14 +432,22 @@ void q_init(queue_t* q)
 // YOUR CODE HERE
 void q_enqueue(queue_t* q, tcb* item)
 {
+	timer_disable();
+
     q->threads[q->back] = item;
 	q->back++;
+
+	create_timer(TIME_QUANTUM, 1, timer_schedule_handler);
 }
 
 tcb* q_dequeue(queue_t* q)
 {
+	timer_disable();
+
     tcb* thread = q->threads[q->front];
     q->front++;
+
+	create_timer(TIME_QUANTUM, 1, timer_schedule_handler);
     return thread;
 }
 
@@ -365,13 +463,24 @@ int q_is_empty(queue_t* q)
 
 void q_printqueue(queue_t* q)
 {
-	printf("Queue: front: %d, back: %d\n", q->front, q->back);
+	timer_disable();
+
+	// printf("Queue: front: %d, back: %d\n", q->front, q->back);
     for (int i = q->front; i != q->back; i++)
     {
 		tcb* curr = q->threads[i];
 
-        printf("%d - threadId: %d, status: %d\n", i, curr->threadId, curr->status);
+		printf("\t");
+
+		if (curr->threadId == 0) // main thread id always 0
+			printf("MainThread");
+		else
+			printf("Thread");
+
+        printf("[id=%d, status=%d]\n", curr->threadId, curr->status);
     }
+
+	create_timer(TIME_QUANTUM, 1, timer_schedule_handler);
 }
 
 void q_destroy(queue_t* q)
@@ -391,10 +500,19 @@ void sch_init(scheduler_t* scheduler)
 
 	scheduler->main_thread = malloc(sizeof(tcb));
 
-	scheduler->main_thread->threadId = 69;
+	scheduler->main_thread->threadId = thread_id_counter++;
+
+	if (scheduler->main_thread->threadId != 0)
+	{
+		printf("Something went wrong during scheduler initialization, main thread id is not 0\n"); // need this cause later we use index 0 to find main thread
+		exit(-1);
+	}
+
 	scheduler->main_thread->priority = DEFAULT_PRIO;
 	scheduler->main_thread->status = READY_STATUS;
 	scheduler->main_thread->context = scheduler->main_context;
+
+	printf("Created main thread with id: %d\n", scheduler->main_thread->threadId);
 	
 	sch_schedule(scheduler, scheduler->main_thread);
 
@@ -418,7 +536,7 @@ void sch_init(scheduler_t* scheduler)
 void sch_schedule(scheduler_t* scheduler, tcb* thread)
 {
 	thread->status = READY_STATUS;
-	q_enqueue(scheduler->run_queue->queues[DEFAULT_PRIO], thread);
+	q_enqueue(scheduler->run_queue->queues[thread->priority], thread);
 }
 
 void create_timer(suseconds_t duration_ms, int repeat, __sighandler_t on_expire_handler)
@@ -436,5 +554,19 @@ void create_timer(suseconds_t duration_ms, int repeat, __sighandler_t on_expire_
     timer.it_interval.tv_sec = 0;
     timer.it_interval.tv_usec = repeat ? duration_ms * 1000 : 0;
 
+	// printf("timer created\n");
     setitimer(ITIMER_REAL, &timer, NULL);
+}
+
+void timer_disable() {
+    struct itimerval timer;
+
+    timer.it_value.tv_sec = 0;
+    timer.it_value.tv_usec = 0;
+    timer.it_interval.tv_sec = 0; 
+    timer.it_interval.tv_usec = 0;
+
+	// printf("timer disabled\n");
+
+	setitimer(ITIMER_REAL, &timer, NULL);
 }

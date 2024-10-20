@@ -65,23 +65,23 @@ typedef struct worker_mutex_t {
 
 #define STACK_SIZE SIGSTKSZ
 
-#define MAX_THREADS 100
-#define NUM_QUEUES 3
+#define MAX_THREADS 100000
 
-#define TIME_QUANTUM 900 // (in ms)
+#define TIME_QUANTUM 10 // (in ms)
+#define REFRESH_QUANTUM 3 // (this is defined in multiples of TIME_QUANTUM and will trigger every (x * TIME_QUANTUM)ms)
 
 /* define your data structures here: */
 // Feel free to add your own auxiliary data structures (linked list or queue etc...)
 
 // YOUR CODE HERE
-struct queue_t{
+struct queue_t {
     tcb* threads[MAX_THREADS];
     int front;
     int back;
 };
 
 typedef struct {
-	queue_t* queues[NUM_QUEUES];
+	queue_t* queues[NUMPRIO];
 } linkedlist_t;
 
 typedef struct {
@@ -93,6 +93,8 @@ typedef struct {
 
 	tcb* main_thread;
 	tcb* current_thread; // currently running thread;
+
+	tcb* thread_table[MAX_THREADS]; // this is a mapping that is used to find threads by their id, kinda waste space probably need better management
 } scheduler_t;
 
 /*
@@ -137,6 +139,12 @@ int worker_mutex_destroy(worker_mutex_t *mutex);
 
 void ll_init(linkedlist_t* ll);
 
+int ll_is_all_empty(linkedlist_t* ll); // checks if ALL queues are empty
+
+int ll_get_index_highest_nonempty(linkedlist_t* ll); // get index of the highest priority non empty queue in the list of queues
+
+void ll_printlist(linkedlist_t* ll);
+
 void q_init(queue_t* q);
 
 void q_enqueue(queue_t* q, tcb* item);
@@ -161,6 +169,8 @@ void print_app_stats(void);
 
 /* Util Functions */
 void create_timer(time_t duration, int repeat, __sighandler_t on_expire_handler);
+
+void timer_disable();
 
 #ifdef USE_WORKERS
 #define pthread_t worker_t

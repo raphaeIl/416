@@ -5,3 +5,4 @@
 
 # Ignore Visual Studio Code folders and all files inside
 .vscode/
+Project2/code/benchmarks/record/*
