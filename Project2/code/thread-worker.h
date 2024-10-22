@@ -34,6 +34,10 @@ typedef struct TCB {
 	ucontext_t* context; // thread context
 	void* stack; // thread stack
 	int priority; // thread priority
+
+	/* for PSJF */
+	int quantums_elapsed; // this keeps tracks of how many quantums that this thread has ALREADY ran, 
+	// assumption: "the more time quantum a thread has run, the longer this job will run to finish"
 	
 	/* statistics */
 	int current_context_switches;
@@ -83,8 +87,7 @@ typedef struct worker_mutex_t {
 // Feel free to add your own auxiliary data structures (linked list or queue etc...)
 
 // YOUR CODE HERE
-typedef struct node
-{
+typedef struct node {
 	tcb* data;
 	struct node* next;
 } node_t;
@@ -97,10 +100,10 @@ struct queue_t {
 
 typedef struct {
 	queue_t* queues[NUMPRIO];
-} linkedlist_t;
+} runqueue_t;
 
 typedef struct {
-    linkedlist_t* run_queue;
+    runqueue_t* run_queue;
 
     ucontext_t* main_context; // main context idk where to store this
     ucontext_t* scheduler_context; // scheduler context
@@ -152,19 +155,32 @@ int worker_mutex_unlock(worker_mutex_t *mutex);
 /* destroy the mutex */
 int worker_mutex_destroy(worker_mutex_t *mutex);
 
-void ll_init(linkedlist_t* ll);
+/* scheduler */
+static void schedule(scheduler_t* scheduler);
 
-int ll_is_all_empty(linkedlist_t* ll); // checks if ALL queues are empty
+static tcb* sched_psjf(scheduler_t* scheduler);
 
-int ll_get_index_highest_nonempty(linkedlist_t* ll); // get index of the highest priority non empty queue in the list of queues
+static tcb* sched_mlfq(scheduler_t* scheduler);
 
-void ll_printlist(linkedlist_t* ll);
+/* Run Queue Operations */
+void rq_init(runqueue_t* runqueue);
 
+int rq_is_all_empty(runqueue_t* runqueue); // checks if ALL queues are empty
+
+int rq_get_shortest_runtime(runqueue_t* runqueue, int priority);
+
+int rq_get_index_highest_nonempty(runqueue_t* runqueue); // get index of the highest priority non empty queue in the list of queues
+
+void rq_printlist(runqueue_t* runqueue);
+
+/* Queue Operations */
 void q_init(queue_t* q);
 
 void q_enqueue(queue_t* q, tcb* item);
 
 tcb* q_dequeue(queue_t* q);
+
+tcb* q_dequeue_shortest_runtime(queue_t* q);
 
 int q_is_empty(queue_t* q);
 
@@ -172,11 +188,11 @@ void q_printqueue(queue_t* q);
 
 void q_destroy(queue_t* q);
 
+/* scheduler_t Operations */
 void sch_init(scheduler_t* scheduler);
 
-void sch_switch();
-
 void sch_schedule(scheduler_t* scheduler, tcb* thread);
+
 /* Function to print global statistics. Do not modify this function.*/
 void print_app_stats(void);
 

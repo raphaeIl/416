@@ -64,6 +64,8 @@ int worker_create(worker_t * thread, pthread_attr_t * attr,
 	new_tcb->time_finished.tv_nsec = 0;
 	new_tcb->time_finished.tv_sec = 0;
 
+	new_tcb->quantums_elapsed = 0;
+
 	ucontext_t* context = malloc(sizeof(ucontext_t));
 
 	if (getcontext(context) < 0){
@@ -244,22 +246,24 @@ void timer_schedule_handler(int signum)
 	{
 	    swapcontext(scheduler.current_thread->context, scheduler.scheduler_context);  // Swap back to the scheduler context
 	}
+	
+	// this moves the lowest prio to highest periodically to prevent starvation, which is only for MLFQ
+	#ifdef MLFQ
+		time_quantum_counter++;
 
-	time_quantum_counter++;
-
-	if (time_quantum_counter % REFRESH_QUANTUM == 0) // refresh time reached, move LOW_PRIO threads to HIGH_PRIO
-	{
-		printf("Refresh timer expired, moving low prio -> high\n");
-		queue_t* low_prio_q = scheduler.run_queue->queues[LOW_PRIO];
-
-		while (!q_is_empty(low_prio_q))
+		if (time_quantum_counter % REFRESH_QUANTUM == 0) // refresh time reached, move LOW_PRIO threads to HIGH_PRIO
 		{
-			q_enqueue(scheduler.run_queue->queues[HIGH_PRIO], q_dequeue(low_prio_q));
+			printf("Refresh timer expired, moving low prio -> high\n");
+			queue_t* low_prio_q = scheduler.run_queue->queues[LOW_PRIO];
+
+			while (!q_is_empty(low_prio_q))
+			{
+				q_enqueue(scheduler.run_queue->queues[HIGH_PRIO], q_dequeue(low_prio_q));
+			}
+
+			rq_printlist(scheduler.run_queue);
 		}
-
-		ll_printlist(scheduler.run_queue);
-	}
-
+	#endif	
 }
 
 /* scheduler */
@@ -270,11 +274,6 @@ static void schedule(scheduler_t* scheduler) {
 
 	// - invoke scheduling algorithms according to the policy (PSJF or MLFQ)
 
-	// if (sched == PSJF)
-	//		sched_psjf();
-	// else if (sched == MLFQ)
-	// 		sched_mlfq();
-
 	// YOUR CODE HERE
 	// !q_is_empty(scheduler->run_queue->queues[DEFAULT_PRIO])
 	while (1)
@@ -282,16 +281,28 @@ static void schedule(scheduler_t* scheduler) {
 		// determine which thread to run here based on psjf/mlfq
 		// ... (hardcoded for now)
 
-		if (ll_is_all_empty(scheduler->run_queue))
+		if (rq_is_all_empty(scheduler->run_queue))
 		{
 			// no threads scheduled, so skip
 			continue;
 		}
 
-		ll_printlist(scheduler->run_queue);
+		rq_printlist(scheduler->run_queue);
 
-		tcb* target_thread = q_dequeue(scheduler->run_queue->queues[ll_get_index_highest_nonempty(scheduler->run_queue)]);
+		tcb* target_thread = NULL;
 		
+		#ifdef MLFQ
+			target_thread = sched_mlfq(scheduler);
+		#else
+			target_thread = sched_psjf(scheduler);
+		#endif
+
+		if (target_thread == NULL)
+		{
+			printf("Something went wrong when dequeuing a thread.");
+			continue; // exit()
+		}
+
 		scheduler->current_thread = target_thread;
 		scheduler->current_thread->status = RUNNING_STATUS;
 		
@@ -303,6 +314,7 @@ static void schedule(scheduler_t* scheduler) {
 		printf("switching to thread %d context...\n", scheduler->current_thread->threadId);
 		scheduler->current_thread->current_context_switches++;
 		swapcontext(scheduler->scheduler_context, scheduler->current_thread->context);
+		scheduler->current_thread->quantums_elapsed++;
 		printf("switched back to scheduler context\n");
 
 		if (scheduler->current_thread == NULL)
@@ -317,11 +329,13 @@ static void schedule(scheduler_t* scheduler) {
 			scheduler->current_thread->status = READY_STATUS;
 
 			// MLFQ: move the thread to the next lower runqueue priority
+			// PSJF: only using DEFAULT_PRIO
 			#ifdef MLFQ
 				printf("using MLFQ\n");
 				int index_lower_q = scheduler->current_thread->priority - 1 > LOW_PRIO ? scheduler->current_thread->priority - 1 : LOW_PRIO;
 				q_enqueue(scheduler->run_queue->queues[index_lower_q], scheduler->current_thread);
 			#else
+				printf("using PSJF\n");
 				q_enqueue(scheduler->run_queue->queues[DEFAULT_PRIO], scheduler->current_thread);
 			#endif	
 
@@ -353,20 +367,24 @@ static void schedule(scheduler_t* scheduler) {
 }
 
 /* Pre-emptive Shortest Job First (POLICY_PSJF) scheduling algorithm */
-static void sched_psjf() {
+static tcb* sched_psjf(scheduler_t* scheduler) {
 	// - your own implementation of PSJF
 	// (feel free to modify arguments and return types)
-
 	// YOUR CODE HERE
+
+	// dequeue thread with the shortest runtime (assumed with elapsed quantum)
+	return q_dequeue_shortest_runtime(scheduler->run_queue->queues[DEFAULT_PRIO]); // since psjf will not be using multi level queue, I will only use the DEFAULT_PRIO queue and all others will be useless
 }
 
 
 /* Preemptive MLFQ scheduling algorithm */
-static void sched_mlfq() {
+static tcb* sched_mlfq(scheduler_t* scheduler) {
 	// - your own implementation of MLFQ
 	// (feel free to modify arguments and return types)
 
 	// YOUR CODE HERE
+
+	return q_dequeue(scheduler->run_queue->queues[rq_get_index_highest_nonempty(scheduler->run_queue)]);
 }
 
 void calc_and_update_stats()
@@ -417,19 +435,19 @@ double get_duration_micro(struct timespec start, struct timespec end)
 }
 
 // Feel free to add any other functions you need
-void ll_init(linkedlist_t* ll)
+void rq_init(runqueue_t* runqueue)
 {
 	for (int i = 0; i < NUMPRIO; i++) {
-        ll->queues[i] = malloc(sizeof(queue_t));
-		q_init(ll->queues[i]);
+        runqueue->queues[i] = malloc(sizeof(queue_t));
+		q_init(runqueue->queues[i]);
 	}
 }
 
-int ll_is_all_empty(linkedlist_t* ll)
+int rq_is_all_empty(runqueue_t* runqueue)
 {
 	for (int i = 0; i < NUMPRIO; i++)
 	{
-		if (!q_is_empty(ll->queues[i]))
+		if (!q_is_empty(runqueue->queues[i]))
 		{
 			return 0;
 		}
@@ -439,12 +457,11 @@ int ll_is_all_empty(linkedlist_t* ll)
 	return 1;
 }
 
-
-int ll_get_index_highest_nonempty(linkedlist_t* ll)
+int rq_get_index_highest_nonempty(runqueue_t* runqueue)
 {
 	for (int i = NUMPRIO - 1; i >= 0; i--)
 	{
-		if (!q_is_empty(ll->queues[i]))
+		if (!q_is_empty(runqueue->queues[i]))
 		{
 			return i;
 		}
@@ -453,25 +470,25 @@ int ll_get_index_highest_nonempty(linkedlist_t* ll)
 	return -1;
 }
 
-void ll_printlist(linkedlist_t* ll)
+void rq_printlist(runqueue_t* runqueue)
 {
 	timer_disable();
 
 	printf("\n-------------Run Queue Status-------------\n");
 	printf("High Priority:\n");
-	q_printqueue(ll->queues[HIGH_PRIO]);
+	q_printqueue(runqueue->queues[HIGH_PRIO]);
 	printf("\n");
 
 	printf("Medium Priority:\n");
-	q_printqueue(ll->queues[MEDIUM_PRIO]);
+	q_printqueue(runqueue->queues[MEDIUM_PRIO]);
 	printf("\n");
 
 	printf("Default Priority:\n");
-	q_printqueue(ll->queues[DEFAULT_PRIO]);
+	q_printqueue(runqueue->queues[DEFAULT_PRIO]);
 	printf("\n");
 
 	printf("Low Priority:\n");
-	q_printqueue(ll->queues[LOW_PRIO]);
+	q_printqueue(runqueue->queues[LOW_PRIO]);
 	printf("------------------------------------------\n");
 
 	create_timer(TIME_QUANTUM, 1, timer_schedule_handler);
@@ -523,6 +540,40 @@ tcb* q_dequeue(queue_t* q)
     return result->data;
 }
 
+tcb* q_dequeue_shortest_runtime(queue_t* q)
+{
+	timer_disable();
+
+	node_t* result = q->head;
+    node_t* curr = q->head;
+	node_t* prev = NULL;
+	node_t* result_prev = result->next;
+
+	while (curr != NULL)
+	{
+		if (curr->data->quantums_elapsed < result->data->quantums_elapsed)
+		{
+			result = curr;
+        	result_prev = prev;
+		}
+
+		prev = curr;
+		curr = curr->next;
+	}
+
+	if (result->data->threadId == q->head->data->threadId)
+	{
+		q->head = result->next;
+	}
+	else
+	{
+		result_prev->next = result->next;
+	}
+
+	create_timer(TIME_QUANTUM, 1, timer_schedule_handler);
+	return result->data;
+}
+
 int q_is_empty(queue_t* q)
 {
 	return q->head == NULL;
@@ -560,8 +611,8 @@ void q_destroy(queue_t* q)
 void sch_init(scheduler_t* scheduler)
 {
 	printf("sch_init\n");
-	scheduler->run_queue = malloc(sizeof(linkedlist_t));
-	ll_init(scheduler->run_queue);
+	scheduler->run_queue = malloc(sizeof(runqueue_t));
+	rq_init(scheduler->run_queue);
 
     scheduler->main_context = malloc(sizeof(ucontext_t));
 
@@ -609,7 +660,16 @@ void sch_schedule(scheduler_t* scheduler, tcb* thread)
 	// sorry for the misleading function name but this is actually when the thread was just created and put into the run queue
 	clock_gettime(CLOCK_REALTIME, &thread->time_enqueued);
 
-	q_enqueue(scheduler->run_queue->queues[thread->priority], thread);
+	int target_priority = -1;
+	
+	// only the multi level queue if MLFQ, otherwise default to DEFAULT_PRIO and ignore all other queues
+	#ifdef MLFQ
+		target_priority = thread->priority;
+	#else
+		target_priority = DEFAULT_PRIO;
+	#endif
+
+	q_enqueue(scheduler->run_queue->queues[target_priority], thread);
 }
 
 void create_timer(suseconds_t duration_ms, int repeat, __sighandler_t on_expire_handler)

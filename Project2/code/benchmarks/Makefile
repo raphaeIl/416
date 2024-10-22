@@ -1,5 +1,5 @@
-# Default to empty if SCHED is not set
-SCHED ?= MLFQ
+# Default to empty if SCHED is not set to MLFQ / PSJF
+SCHED ?= PSJF
 
 # Use SCHED_FLAG only if SCHED is set
 SCHED_FLAG := $(if $(SCHED),-D$(SCHED),)
