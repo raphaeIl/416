@@ -74,7 +74,7 @@ typedef struct worker_mutex_t {
 
 #define STACK_SIZE SIGSTKSZ
 
-#define MAX_THREADS 100000
+#define MAX_THREADS 100
 
 #define TIME_QUANTUM 10 // (in ms)
 #define REFRESH_QUANTUM 3 // (this is defined in multiples of TIME_QUANTUM and will trigger every (x * TIME_QUANTUM)ms)
@@ -83,10 +83,16 @@ typedef struct worker_mutex_t {
 // Feel free to add your own auxiliary data structures (linked list or queue etc...)
 
 // YOUR CODE HERE
+typedef struct node
+{
+	tcb* data;
+	struct node* next;
+} node_t;
+
 struct queue_t {
-    tcb* threads[MAX_THREADS];
-    int front;
-    int back;
+	node_t* head;
+	node_t* tail;
+	int size;
 };
 
 typedef struct {
@@ -159,8 +165,6 @@ void q_init(queue_t* q);
 void q_enqueue(queue_t* q, tcb* item);
 
 tcb* q_dequeue(queue_t* q);
-
-tcb* q_peek(queue_t* q);
 
 int q_is_empty(queue_t* q);
 

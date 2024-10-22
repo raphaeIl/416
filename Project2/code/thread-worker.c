@@ -257,7 +257,7 @@ void timer_schedule_handler(int signum)
 			q_enqueue(scheduler.run_queue->queues[HIGH_PRIO], q_dequeue(low_prio_q));
 		}
 
-		// ll_printlist(scheduler.run_queue);
+		ll_printlist(scheduler.run_queue);
 	}
 
 }
@@ -288,7 +288,7 @@ static void schedule(scheduler_t* scheduler) {
 			continue;
 		}
 
-		// ll_printlist(scheduler->run_queue);
+		ll_printlist(scheduler->run_queue);
 
 		tcb* target_thread = q_dequeue(scheduler->run_queue->queues[ll_get_index_highest_nonempty(scheduler->run_queue)]);
 		
@@ -479,8 +479,9 @@ void ll_printlist(linkedlist_t* ll)
 
 void q_init(queue_t* q)
 {
-    q->front = 0;
-    q->back = 0;
+    q->head = NULL;
+    q->tail = NULL;
+	q->size = 0;
 }
 
 // YOUR CODE HERE
@@ -488,8 +489,23 @@ void q_enqueue(queue_t* q, tcb* item)
 {
 	timer_disable();
 
-    q->threads[q->back] = item;
-	q->back++;
+	node_t* new_node = (node_t*)malloc(sizeof(node_t));
+	
+	new_node->data = item;
+	new_node->next = NULL;
+
+	if (q->head == NULL)
+	{
+		q->head = new_node;
+		q->tail = new_node;
+	}
+	else 
+	{
+		q->tail->next = new_node;
+		q->tail = new_node;
+	}
+
+	q->size++;
 
 	create_timer(TIME_QUANTUM, 1, timer_schedule_handler);
 }
@@ -498,21 +514,18 @@ tcb* q_dequeue(queue_t* q)
 {
 	timer_disable();
 
-    tcb* thread = q->threads[q->front];
-    q->front++;
+    node_t* result = q->head;
+
+	q->head = q->head->next;
+	q->size--;
 
 	create_timer(TIME_QUANTUM, 1, timer_schedule_handler);
-    return thread;
-}
-
-tcb* q_peek(queue_t* q)
-{
-	return q->threads[q->front];
+    return result->data;
 }
 
 int q_is_empty(queue_t* q)
 {
-	return q->front == q->back;
+	return q->head == NULL;
 }
 
 void q_printqueue(queue_t* q)
@@ -520,19 +533,21 @@ void q_printqueue(queue_t* q)
 	timer_disable();
 
 	// printf("Queue: front: %d, back: %d\n", q->front, q->back);
-    for (int i = q->front; i != q->back; i++)
-    {
-		tcb* curr = q->threads[i];
+	node_t* curr = q->head;
 
+	while (curr != NULL)
+	{
 		printf("\t");
 
-		if (curr->threadId == 0) // main thread id always 0
+		if (curr->data->threadId == 0) // main thread id always 0
 			printf("MainThread");
 		else
 			printf("Thread");
 
-        printf("[id=%d, status=%d]\n", curr->threadId, curr->status);
-    }
+        printf("[id=%d, status=%d]\n", curr->data->threadId, curr->data->status);
+
+		curr = curr->next;
+	}
 
 	create_timer(TIME_QUANTUM, 1, timer_schedule_handler);
 }
