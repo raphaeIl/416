@@ -7,9 +7,9 @@
 
 //Global counter for total context switches and 
 //average turn around and response time
-long tot_cntx_switches=0;
-double avg_turn_time=0;
-double avg_resp_time=0;
+long tot_cntx_switches = 0;
+double avg_turn_time = 0;
+double avg_resp_time = 0;
 
 // INITAILIZE ALL YOUR OTHER VARIABLES HERE
 // YOUR CODE HERE
@@ -57,6 +57,12 @@ int worker_create(worker_t * thread, pthread_attr_t * attr,
 	new_tcb->threadId = thread_id_counter++;
 	new_tcb->priority = DEFAULT_PRIO;
 	new_tcb->status = WAITING_STATUS;
+	new_tcb->time_enqueued.tv_nsec = 0;
+	new_tcb->time_enqueued.tv_sec = 0;
+	new_tcb->time_scheduled.tv_nsec = 0;
+	new_tcb->time_scheduled.tv_sec = 0;
+	new_tcb->time_finished.tv_nsec = 0;
+	new_tcb->time_finished.tv_sec = 0;
 
 	ucontext_t* context = malloc(sizeof(ucontext_t));
 
@@ -251,7 +257,7 @@ void timer_schedule_handler(int signum)
 			q_enqueue(scheduler.run_queue->queues[HIGH_PRIO], q_dequeue(low_prio_q));
 		}
 
-		ll_printlist(scheduler.run_queue);
+		// ll_printlist(scheduler.run_queue);
 	}
 
 }
@@ -282,14 +288,20 @@ static void schedule(scheduler_t* scheduler) {
 			continue;
 		}
 
-		ll_printlist(scheduler->run_queue);
+		// ll_printlist(scheduler->run_queue);
 
 		tcb* target_thread = q_dequeue(scheduler->run_queue->queues[ll_get_index_highest_nonempty(scheduler->run_queue)]);
 		
 		scheduler->current_thread = target_thread;
 		scheduler->current_thread->status = RUNNING_STATUS;
+		
+		if (scheduler->current_thread->time_scheduled.tv_nsec == 0 && scheduler->current_thread->time_scheduled.tv_sec == 0) // this is when the current thread is being scheduled and ran for the first time
+		{
+			clock_gettime(CLOCK_REALTIME, &scheduler->current_thread->time_scheduled);
+		}
 
 		printf("switching to thread %d context...\n", scheduler->current_thread->threadId);
+		scheduler->current_thread->current_context_switches++;
 		swapcontext(scheduler->scheduler_context, scheduler->current_thread->context);
 		printf("switched back to scheduler context\n");
 
@@ -304,7 +316,6 @@ static void schedule(scheduler_t* scheduler) {
 
 			scheduler->current_thread->status = READY_STATUS;
 
-
 			// MLFQ: move the thread to the next lower runqueue priority
 			#ifdef MLFQ
 				printf("using MLFQ\n");
@@ -318,6 +329,12 @@ static void schedule(scheduler_t* scheduler) {
 
 		else if (scheduler->current_thread->status == FINISHED_STATUS || scheduler->current_thread->status == BLOCKED_STATUS)
 		{
+			// this is when the thread finishes
+			clock_gettime(CLOCK_REALTIME, &scheduler->current_thread->time_finished);
+
+			printf("thread id: %d finished\n", scheduler->current_thread->threadId);
+
+			calc_and_update_stats();
 			// need a seperate queue for finished threads to be processed when join
 			printf("now going back to main\n");
 			scheduler->current_thread = NULL;
@@ -352,6 +369,32 @@ static void sched_mlfq() {
 	// YOUR CODE HERE
 }
 
+void calc_and_update_stats()
+{
+	printf("calc_and_update_stats\n");
+	int tol_context_switches = 0;
+	double tol_turn_time = 0;
+	double tol_resp_time = 0;
+
+	for (int i = 1; i < thread_id_counter - 1; i++)
+	{
+		tcb* curr = scheduler.thread_table[i];
+
+		tol_context_switches += curr->current_context_switches;
+		tol_turn_time += get_duration_micro(curr->time_enqueued, curr->time_finished);
+		tol_resp_time += get_duration_micro(curr->time_enqueued, curr->time_scheduled);
+
+		// printf("Thread %d:\n", i);
+		// printf("curr->time_enqueued: %lf\n", (double)curr->time_enqueued.tv_nsec);
+		// printf("curr->time_scheduled: %lf\n", (double)curr->time_scheduled.tv_nsec);
+		// printf("curr->time_finished: %lf\n", (double)curr->time_finished.tv_nsec);
+	}
+	
+	tot_cntx_switches = tol_context_switches;
+	avg_turn_time = tol_turn_time / (thread_id_counter + 1);
+	avg_resp_time = tol_resp_time / (thread_id_counter + 1);
+}
+
 //DO NOT MODIFY THIS FUNCTION
 /* Function to print global statistics. Do not modify this function.*/
 void print_app_stats(void) {
@@ -361,6 +404,17 @@ void print_app_stats(void) {
        fprintf(stderr, "Average response time  %lf \n", avg_resp_time);
 }
 
+double get_duration_micro(struct timespec start, struct timespec end)
+{
+	double duration = (double)((end.tv_sec - start.tv_sec) * 1000000 + (end.tv_nsec - start.tv_nsec) / 1000);
+
+	if (duration < 0)
+	{
+		duration *= -1;
+	}
+
+	return duration;
+}
 
 // Feel free to add any other functions you need
 void ll_init(linkedlist_t* ll)
@@ -536,6 +590,10 @@ void sch_init(scheduler_t* scheduler)
 void sch_schedule(scheduler_t* scheduler, tcb* thread)
 {
 	thread->status = READY_STATUS;
+
+	// sorry for the misleading function name but this is actually when the thread was just created and put into the run queue
+	clock_gettime(CLOCK_REALTIME, &thread->time_enqueued);
+
 	q_enqueue(scheduler->run_queue->queues[thread->priority], thread);
 }
 

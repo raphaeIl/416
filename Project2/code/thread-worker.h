@@ -22,6 +22,7 @@
 #include <signal.h>
 #include <sys/time.h>
 #include <string.h>
+#include <time.h>
 
 typedef uint worker_t;
 typedef struct queue_t queue_t;
@@ -33,8 +34,16 @@ typedef struct TCB {
 	ucontext_t* context; // thread context
 	void* stack; // thread stack
 	int priority; // thread priority
+	
+	/* statistics */
+	int current_context_switches;
+	struct timespec time_enqueued; // this is the time that the thread was first put into the runqueue
+	struct timespec time_scheduled; // the time this thread was first scheduled
+	struct timespec time_finished; // the time that this thread finished
+	// so  turnaround_time = time_finished - time_enqueued
+	// and response_time = time_enqueued - time_scheduled
+	
 	// And more ...
-
 	// YOUR CODE HERE
 } tcb; 
 
@@ -171,6 +180,10 @@ void print_app_stats(void);
 void create_timer(time_t duration, int repeat, __sighandler_t on_expire_handler);
 
 void timer_disable();
+
+void calc_and_update_stats();
+
+double get_duration_micro(struct timespec start, struct timespec end);
 
 #ifdef USE_WORKERS
 #define pthread_t worker_t

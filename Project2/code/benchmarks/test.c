@@ -101,6 +101,9 @@ int main(int argc, char **argv) {
 
 	printf("main thread done\n");
 
+	print_app_stats();
+	fprintf(stderr, "***************************\n");
+
 	// while (1)
 	// {
 	// }

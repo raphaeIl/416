@@ -23,4 +23,5 @@ test:
 	$(CC) $(CFLAGS) test.c ../thread-worker.c -g -o test
 
 clean:
-	rm -rf testcase test parallel_cal vector_multiply external_cal *.o ./record/ *.dSYM
+	# rm -rf testcase test parallel_cal vector_multiply external_cal *.o ./record/ *.dSYM
+	rm -rf testcase test parallel_cal vector_multiply external_cal *.o *.dSYM
