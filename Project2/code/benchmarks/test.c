@@ -14,7 +14,7 @@
  * You can modify and use this program as much as possible.
  * This will not be graded.
  */
-void simulate_short_task(void* i)
+void* simulate_short_task(void* i)
 {
 	int arg_i = *((int*)i);
 
@@ -40,10 +40,15 @@ void simulate_short_task(void* i)
 		}
 	}
 	
-	printf("thread %d result: %d\n", arg_i, a);
+	printf("thread %d actual result: %d\n", arg_i, a);
+
+	int* result = malloc(sizeof(int));
+	*result = a;
+
+	return result;
 }
 
-void simulate_long_task(void* i)
+void* simulate_long_task(void* i)
 {
 	int arg_i = *((int*)i);
 	printf("[thread content]: running thread %d...\n", arg_i);
@@ -68,7 +73,11 @@ void simulate_long_task(void* i)
 		}
 	}
 	
-	printf("thread %d result: %d\n", arg_i, a);
+	printf("thread %d actual result: %d\n", arg_i, a);
+
+	int* result = malloc(sizeof(int));
+	*result = a;
+	return result;
 }
 
 int main(int argc, char **argv) {
@@ -97,10 +106,13 @@ int main(int argc, char **argv) {
 	printf("back to main thread, thread %d created and started\n", thread3);
 	
 	printf("joining threads...\n");
-	pthread_join(thread2, NULL);
+	int* thread2_result = NULL;
+	pthread_join(thread2, &thread2_result);
 
 	printf("main thread done\n");
 
+	printf("result value_ptr: %d\n", *thread2_result);
+	
 	print_app_stats();
 	fprintf(stderr, "***************************\n");
 

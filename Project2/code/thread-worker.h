@@ -35,6 +35,8 @@ typedef struct TCB {
 	void* stack; // thread stack
 	int priority; // thread priority
 
+	void* return_value; // will store the thread's return value if it exists
+
 	/* for PSJF */
 	int quantums_elapsed; // this keeps tracks of how many quantums that this thread has ALREADY ran, 
 	// assumption: "the more time quantum a thread has run, the longer this job will run to finish"

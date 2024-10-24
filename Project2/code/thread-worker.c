@@ -23,7 +23,7 @@ void thread_function_wrapper(void* arg)
 	worker_wrapper_t* wrapper_data = (worker_wrapper_t*)arg;
 
 	// call the original worker function
-	wrapper_data->original_function(wrapper_data->original_args);
+	scheduler.current_thread->return_value = wrapper_data->original_function(wrapper_data->original_args);
 
 	printf("%d Finished executing, going back to scheduler context\n", scheduler.current_thread->threadId);
 	scheduler.current_thread->status = FINISHED_STATUS;
@@ -57,6 +57,8 @@ int worker_create(worker_t * thread, pthread_attr_t * attr,
 	new_tcb->threadId = thread_id_counter++;
 	new_tcb->priority = DEFAULT_PRIO;
 	new_tcb->status = WAITING_STATUS;
+	new_tcb->return_value = NULL;
+
 	new_tcb->time_enqueued.tv_nsec = 0;
 	new_tcb->time_enqueued.tv_sec = 0;
 	new_tcb->time_scheduled.tv_nsec = 0;
@@ -140,9 +142,11 @@ void worker_exit(void *value_ptr) {
 
 	scheduler.current_thread->status = FINISHED_STATUS;
 
+	value_ptr = scheduler.current_thread->return_value;
+
 	printf("exiting thread id: %d\n", scheduler.current_thread->threadId);
 	swapcontext(scheduler.current_thread->context, scheduler.scheduler_context);
-	// YOUR CODE HERE
+	// YOUR CODE HERE,.
 };
 
 
@@ -152,20 +156,20 @@ int worker_join(worker_t thread, void **value_ptr) {
 
 	// - wait for a specific thread to terminate
 	// - de-allocate any dynamic memory created by the joining thread
+	// YOUR CODE HERE
 
-
-	// hardcoded for now, change later
 	printf("joining thread id: %d\n", thread);
-	// tcb* target_thread = scheduler.run_queue->queues[DEFAULT_PRIO]->threads[thread + 1];
 	tcb* target_thread = scheduler.thread_table[thread]; // find thread by id
 
 	while (target_thread->status != FINISHED_STATUS)
 	{
 		worker_yield();
-		// printf("thread %d status: %d\n", target_thread->threadId, target_thread->status);
 	}
 
-	// YOUR CODE HERE
+	if (value_ptr != NULL)
+	{
+		*value_ptr = target_thread->return_value;
+	}
 	return 0;
 };
 
@@ -261,7 +265,7 @@ void timer_schedule_handler(int signum)
 				q_enqueue(scheduler.run_queue->queues[HIGH_PRIO], q_dequeue(low_prio_q));
 			}
 
-			rq_printlist(scheduler.run_queue);
+			// rq_printlist(scheduler.run_queue);
 		}
 	#endif	
 }
@@ -287,7 +291,7 @@ static void schedule(scheduler_t* scheduler) {
 			continue;
 		}
 
-		rq_printlist(scheduler->run_queue);
+		// rq_printlist(scheduler->run_queue);
 
 		tcb* target_thread = NULL;
 		
@@ -353,8 +357,6 @@ static void schedule(scheduler_t* scheduler) {
 			printf("now going back to main\n");
 			scheduler->current_thread = NULL;
 		}
-
-		// swapcontext(scheduler->scheduler_context, scheduler->main_context);
 	}
 
 // - schedule policy
@@ -610,7 +612,6 @@ void q_destroy(queue_t* q)
 
 void sch_init(scheduler_t* scheduler)
 {
-	printf("sch_init\n");
 	scheduler->run_queue = malloc(sizeof(runqueue_t));
 	rq_init(scheduler->run_queue);
 
