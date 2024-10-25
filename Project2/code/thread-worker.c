@@ -25,9 +25,8 @@ void thread_function_wrapper(void* arg)
 	// call the original worker function
 	scheduler.current_thread->return_value = wrapper_data->original_function(wrapper_data->original_args);
 
-	printf("%d Finished executing, going back to scheduler context\n", scheduler.current_thread->threadId);
 	scheduler.current_thread->status = FINISHED_STATUS;
-	// printf("status: %d\n", scheduler.current_thread->status);
+
 }
 
 /* create a new thread */
@@ -91,7 +90,6 @@ int worker_create(worker_t * thread, pthread_attr_t * attr,
 	wrapper_data->original_args = arg;
 
 	makecontext(new_tcb->context, (void*)thread_function_wrapper, 1, wrapper_data);
-	printf("Created new worker thread with id: %d\n", new_tcb->threadId);
 
 	scheduler.thread_table[new_tcb->threadId] = new_tcb;
 	sch_schedule(&scheduler, new_tcb);
@@ -130,7 +128,7 @@ int worker_yield() {
 
 	scheduler.current_thread->status = READY_STATUS;
 
-	printf("yielding thread id: %d\n", scheduler.current_thread->threadId);
+	// printf("yielding thread id: %d\n", scheduler.current_thread->threadId);
 	swapcontext(scheduler.current_thread->context, scheduler.scheduler_context);
 
 	return 0;
@@ -139,14 +137,17 @@ int worker_yield() {
 /* terminate a thread */  // ptr that is saved
 void worker_exit(void *value_ptr) {
 	// - de-allocate any dynamic memory created when starting this thread
+	// YOUR CODE HERE,.
 
 	scheduler.current_thread->status = FINISHED_STATUS;
 
-	scheduler.current_thread->return_value = value_ptr;
+	if (value_ptr != NULL)
+	{
+		scheduler.current_thread->return_value = value_ptr;
+	}
 
-	printf("exiting thread id: %d\n", scheduler.current_thread->threadId);
 	swapcontext(scheduler.current_thread->context, scheduler.scheduler_context);
-	// YOUR CODE HERE,.
+
 };
 
 
@@ -158,7 +159,6 @@ int worker_join(worker_t thread, void **value_ptr) {
 	// - de-allocate any dynamic memory created by the joining thread
 	// YOUR CODE HERE
 
-	printf("joining thread id: %d\n", thread);
 	tcb* target_thread = scheduler.thread_table[thread]; // find thread by id
 
 	while (target_thread->status != FINISHED_STATUS)
@@ -170,6 +170,11 @@ int worker_join(worker_t thread, void **value_ptr) {
 	{
 		*value_ptr = target_thread->return_value;
 	}
+
+
+	// free(target_thread->context);
+	// free(target_thread->stack);
+	// free(target_thread);
 	return 0;
 };
 
@@ -198,8 +203,6 @@ int worker_mutex_lock(worker_mutex_t *mutex) {
 	// YOUR CODE HERE
 	if (__sync_lock_test_and_set(&mutex->locked, 1)) // this will keep running until lock becomes available
 	{
-		printf("Thread is currentlyy locked, can not enter critical section\n");
-		
 		scheduler.current_thread->status = BLOCKED_STATUS;
 		q_enqueue(mutex->blocked_threads, scheduler.current_thread);
 		worker_yield();
@@ -240,15 +243,12 @@ int worker_mutex_destroy(worker_mutex_t *mutex) {
 // turn this off when updating scheduler_t or anything, no looping
 void timer_schedule_handler(int signum)
 {
-	printf("Timer expired, going back to scheduler context\n");
-
 	// this moves the lowest prio to highest periodically to prevent starvation, which is only for MLFQ
 	#ifdef MLFQ
 		time_quantum_counter++;
 
 		if (time_quantum_counter % REFRESH_QUANTUM == 0) // refresh time reached, move LOW_PRIO threads to HIGH_PRIO
 		{
-			printf("Refresh timer expired, moving low prio -> high\n");
 			queue_t* low_prio_q = scheduler.run_queue->queues[LOW_PRIO];
 
 			while (!q_is_empty(low_prio_q))
@@ -258,7 +258,7 @@ void timer_schedule_handler(int signum)
 				q_enqueue(scheduler.run_queue->queues[HIGH_PRIO], target_thread);
 			}
 
-			rq_printlist(scheduler.run_queue);
+			// rq_printlist(scheduler.run_queue);
 		}
 	#endif	
 
@@ -317,12 +317,10 @@ static void schedule(scheduler_t* scheduler) {
 			clock_gettime(CLOCK_REALTIME, &scheduler->current_thread->time_scheduled);
 		}
 
-		printf("switching to thread %d context...\n", scheduler->current_thread->threadId);
 		scheduler->current_thread->current_context_switches++;
 		swapcontext(scheduler->scheduler_context, scheduler->current_thread->context);
 
 		scheduler->current_thread->quantums_elapsed++;
-		printf("switched back to scheduler context\n");
 
 		if (scheduler->current_thread == NULL)
 		{
@@ -331,29 +329,34 @@ static void schedule(scheduler_t* scheduler) {
 		
 		if (scheduler->current_thread->status == RUNNING_STATUS || scheduler->current_thread->status == READY_STATUS)
 		{
-			printf("current thread has not completed it's work yet, readding it to the run queue for the next quantum\n");
-
 			scheduler->current_thread->status = READY_STATUS;
 
 			// MLFQ: move the thread to the next lower runqueue priority
 			// PSJF: only using DEFAULT_PRIO
 			#ifdef MLFQ
-				printf("using MLFQ\n");
 				int index_lower_q = scheduler->current_thread->priority - 1 > LOW_PRIO ? scheduler->current_thread->priority - 1 : LOW_PRIO;
 				scheduler->current_thread->priority = index_lower_q;
 				q_enqueue(scheduler->run_queue->queues[index_lower_q], scheduler->current_thread);
 			#else
-				printf("using PSJF\n");
 				q_enqueue(scheduler->run_queue->queues[DEFAULT_PRIO], scheduler->current_thread);
 			#endif	
 
 		}
 
-		else if (scheduler->current_thread->status == FINISHED_STATUS || scheduler->current_thread->status == BLOCKED_STATUS)
+		else if (scheduler->current_thread->status == BLOCKED_STATUS)
+		{
+			scheduler->current_thread = NULL;
+		}
+
+		else if (scheduler->current_thread->status == FINISHED_STATUS)
 		{
 			clock_gettime(CLOCK_REALTIME, &scheduler->current_thread->time_finished);
 
 			calc_and_update_stats();
+
+			// free(target_thread->context);
+			// free(target_thread->stack);
+			// free(target_thread);
 			scheduler->current_thread = NULL;
 		}
 	}
@@ -390,7 +393,6 @@ static tcb* sched_mlfq(scheduler_t* scheduler) {
 
 void calc_and_update_stats()
 {
-	printf("calc_and_update_stats\n");
 	int tol_context_switches = 0;
 	double tol_turn_time = 0;
 	double tol_resp_time = 0;
@@ -402,11 +404,6 @@ void calc_and_update_stats()
 		tol_context_switches += curr->current_context_switches;
 		tol_turn_time += get_duration_micro(curr->time_enqueued, curr->time_finished);
 		tol_resp_time += get_duration_micro(curr->time_enqueued, curr->time_scheduled);
-
-		// printf("Thread %d:\n", i);
-		// printf("curr->time_enqueued: %lf\n", (double)curr->time_enqueued.tv_nsec);
-		// printf("curr->time_scheduled: %lf\n", (double)curr->time_scheduled.tv_nsec);
-		// printf("curr->time_finished: %lf\n", (double)curr->time_finished.tv_nsec);
 	}
 	
 	tot_cntx_switches = tol_context_switches;
@@ -538,7 +535,11 @@ tcb* q_dequeue(queue_t* q)
 	q->size--;
 
 	create_timer(TIME_QUANTUM, 1, timer_schedule_handler);
-    return result->data;
+
+	tcb* result_data = result->data;
+
+	free(result);
+    return result_data;
 }
 
 tcb* q_dequeue_shortest_runtime(queue_t* q)

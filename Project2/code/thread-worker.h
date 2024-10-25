@@ -3,7 +3,6 @@
 // List all group member's name:
 // username of iLab:
 // iLab Server:
-// gcc test.c ../thread-worker.c ../tscheduler.c ../queue.c -o test
 #ifndef WORKER_T_H
 #define WORKER_T_H
 

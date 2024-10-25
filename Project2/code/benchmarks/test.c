@@ -45,7 +45,7 @@ void* simulate_short_task(void* i)
 	int* result = malloc(sizeof(int));
 	*result = a;
 
-	return result;
+	pthread_exit(result);
 }
 
 void* simulate_long_task(void* i)
@@ -77,7 +77,9 @@ void* simulate_long_task(void* i)
 
 	int* result = malloc(sizeof(int));
 	*result = a;
-	return result;
+
+	pthread_exit(result);
+	// return result;
 }
 
 int main(int argc, char **argv) {
