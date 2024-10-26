@@ -4,19 +4,23 @@ User-level Thread Library and Scheduler
 ### Contributors:
 Michael Liu msl196
 
-## Build
-#### Compile and Link all files
-```
-make
-```
-
-## Scheduler Modes
+## Build with different Scheduler Modes
+To build with a speific scheduler, run the following make commands in the ./code directory, after that just run make inside ./benchmarks, please re-run the make commands and try again if the program just doesn't run or breaks.
 
 ### PSJF
-
+```
+make SCHED=PSJF
+```
 
 ### MLFQ:
+```
+make SCHED=PSJF
+```
 
+### MATRIX:
+```
+make SCHED=MATRIX
+```
 
 ## General Structure
 ### `TCB` - This is the thread control block that represents our threads and contains all data for thread
@@ -53,5 +57,3 @@ make
 
 ## Project Description 
 In this project, we implemented a pthread-like library that contains two type of schedulers, PSJF and MLFQ
-### Notes: 
-NOTE: 
