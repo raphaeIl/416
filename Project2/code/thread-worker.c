@@ -1,7 +1,7 @@
 // File:	thread-worker.c
 
-// List all group member's name:
-// username of iLab:
+// List all group member's name: msl196
+// username of iLab: msl196@ilab1.cs.rutgers.edu
 // iLab Server:
 #include "thread-worker.h"
 
@@ -74,7 +74,6 @@ int worker_create(worker_t * thread, pthread_attr_t * attr,
 		exit(1);
 	}
 
-    // Dynamically allocate a stack
 	new_tcb->stack = malloc(STACK_SIZE);
 
 	context->uc_link = scheduler.scheduler_context;
@@ -151,7 +150,6 @@ void worker_exit(void *value_ptr) {
 };
 
 
-// need tcb* in struct tcb for threads that the current threads are waiting, curr=t3->join(t1): tcb(t3)->joined_thread = t1, meaning that t3 will need to wait for t1 and t3 will be blocked
 /* Wait for thread termination */     // ptr that needs to be set with the worker_exit() return value of the thread
 int worker_join(worker_t thread, void **value_ptr) {
 
@@ -240,7 +238,7 @@ int worker_mutex_destroy(worker_mutex_t *mutex) {
 
 	return 0;
 };
-// turn this off when updating scheduler_t or anything, no looping
+// turn this off when updating scheduler_t or anything
 void timer_schedule_handler(int signum)
 {
 	// this moves the lowest prio to highest periodically to prevent starvation, which is only for MLFQ

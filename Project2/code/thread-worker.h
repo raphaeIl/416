@@ -1,8 +1,8 @@
 // File:	worker_t.h
 
-// List all group member's name:
-// username of iLab:
-// iLab Server:
+// List all group member's name: Michael Liu
+// username of iLab: msl196@ilab1.cs.rutgers.edu
+// iLab Server: ilab1
 #ifndef WORKER_T_H
 #define WORKER_T_H
 
