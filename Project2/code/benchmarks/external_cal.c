@@ -63,7 +63,7 @@ void verify() {
 	char a[3];
 	char path[20] = "./record/";
 
-	sum = 0;
+	int verify_sum = 0;
 	memset(mem, 0, RAM_SIZE);
 
 	for (k = 0; k < 10; ++k) {
@@ -82,11 +82,13 @@ void verify() {
 			// read 16B from nth record into memory from mem[n*4]
 			for (j = 0; j < 4; ++j) {
 				fscanf(f, "%d\n", &mem[k*4 + j]);
-				sum += mem[k*4 + j];
+				verify_sum += mem[k*4 + j];
 			}
 		}
 		fclose(f);
 	}
+
+	printf("verified sum is: %d\n", verify_sum);
 }
 
 

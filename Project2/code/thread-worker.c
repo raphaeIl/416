@@ -15,6 +15,7 @@ double avg_resp_time = 0;
 // YOUR CODE HERE
 int thread_id_counter = 0;
 int time_quantum_counter = 0;
+int threads_finished_counter = 0;
 
 scheduler_t scheduler;
 
@@ -38,7 +39,6 @@ int worker_create(worker_t * thread, pthread_attr_t * attr,
 	// - allocate space of stack for this thread to run
 	// after everything is set, push this thread into run queue and 
 	// - make it ready for the execution.
-
 	// YOUR CODE HERE
 	if (thread_id_counter == 0) // this means it is the first ever call to worker_create
 	{
@@ -299,6 +299,8 @@ static void schedule(scheduler_t* scheduler) {
 		
 		#ifdef MLFQ
 			target_thread = sched_mlfq(scheduler);
+		#elif MATRIX
+			target_thread = sched_matrix(scheduler);
 		#else
 			target_thread = sched_psjf(scheduler);
 		#endif
@@ -319,7 +321,6 @@ static void schedule(scheduler_t* scheduler) {
 
 		scheduler->current_thread->current_context_switches++;
 		swapcontext(scheduler->scheduler_context, scheduler->current_thread->context);
-
 		scheduler->current_thread->quantums_elapsed++;
 
 		if (scheduler->current_thread == NULL)
@@ -352,7 +353,8 @@ static void schedule(scheduler_t* scheduler) {
 		{
 			clock_gettime(CLOCK_REALTIME, &scheduler->current_thread->time_finished);
 
-			calc_and_update_stats();
+			calc_and_update_stats(scheduler->current_thread);
+			threads_finished_counter++;
 
 			// free(target_thread->context);
 			// free(target_thread->stack);
@@ -391,24 +393,25 @@ static tcb* sched_mlfq(scheduler_t* scheduler) {
 	return q_dequeue(scheduler->run_queue->queues[rq_get_index_highest_nonempty(scheduler->run_queue)]);
 }
 
-void calc_and_update_stats()
+/* MATRIX scheduling algorithm */
+static tcb* sched_matrix(scheduler_t* scheduler) {
+	// dequeue thread with the longest runtime
+	return q_dequeue_longest_runtime(scheduler->run_queue->queues[DEFAULT_PRIO]);
+}
+
+
+void calc_and_update_stats(tcb* thread_finished)
 {
-	int tol_context_switches = 0;
-	double tol_turn_time = 0;
-	double tol_resp_time = 0;
+	tot_cntx_switches += thread_finished->current_context_switches;
 
-	for (int i = 1; i < thread_id_counter - 1; i++)
-	{
-		tcb* curr = scheduler.thread_table[i];
+	double tol_turn_time = avg_resp_time * threads_finished_counter; // to re-calculate the avg time, since we know the current avg time and also the amount of threads for that average, we get the sum, add the amount for the finished thread to it, and then recalculate it with the # of threads incremented by one since a thread has just finished
+	double tol_resp_time = avg_resp_time * threads_finished_counter;
 
-		tol_context_switches += curr->current_context_switches;
-		tol_turn_time += get_duration_micro(curr->time_enqueued, curr->time_finished);
-		tol_resp_time += get_duration_micro(curr->time_enqueued, curr->time_scheduled);
-	}
-	
-	tot_cntx_switches = tol_context_switches;
-	avg_turn_time = tol_turn_time / (thread_id_counter + 1);
-	avg_resp_time = tol_resp_time / (thread_id_counter + 1);
+	tol_turn_time += get_duration_micro(thread_finished->time_enqueued, thread_finished->time_finished);
+	tol_resp_time += get_duration_micro(thread_finished->time_enqueued, thread_finished->time_scheduled);
+
+	avg_turn_time = tol_turn_time / (threads_finished_counter + 1);
+	avg_resp_time = tol_resp_time / (threads_finished_counter + 1);
 }
 
 //DO NOT MODIFY THIS FUNCTION
@@ -576,6 +579,40 @@ tcb* q_dequeue_shortest_runtime(queue_t* q)
 	return result->data;
 }
 
+tcb* q_dequeue_longest_runtime(queue_t* q)
+{
+	timer_disable();
+
+	node_t* result = q->head;
+    node_t* curr = q->head;
+	node_t* prev = NULL;
+	node_t* result_prev = result->next;
+
+	while (curr != NULL)
+	{
+		if (curr->data->quantums_elapsed < result->data->quantums_elapsed)
+		{
+			result = curr;
+        	result_prev = prev;
+		}
+
+		prev = curr;
+		curr = curr->next;
+	}
+
+	if (result->data->threadId == q->head->data->threadId)
+	{
+		q->head = result->next;
+	}
+	else
+	{
+		result_prev->next = result->next;
+	}
+
+	create_timer(TIME_QUANTUM, 1, timer_schedule_handler);
+	return result->data;
+}
+
 int q_is_empty(queue_t* q)
 {
 	return q->head == NULL;
@@ -633,8 +670,6 @@ void sch_init(scheduler_t* scheduler)
 	scheduler->main_thread->status = READY_STATUS;
 	scheduler->main_thread->context = scheduler->main_context;
 
-	printf("Created main thread with id: %d\n", scheduler->main_thread->threadId);
-	
 	sch_schedule(scheduler, scheduler->main_thread);
 
     scheduler->scheduler_context = malloc(sizeof(ucontext_t));

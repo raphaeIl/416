@@ -79,7 +79,7 @@ typedef struct worker_mutex_t {
 
 #define STACK_SIZE SIGSTKSZ
 
-#define MAX_THREADS 100
+#define MAX_THREADS 1000
 
 #define TIME_QUANTUM 10 // (in ms)
 #define REFRESH_QUANTUM 3 // (this is defined in multiples of TIME_QUANTUM and will trigger every (x * TIME_QUANTUM)ms)
@@ -163,6 +163,8 @@ static tcb* sched_psjf(scheduler_t* scheduler);
 
 static tcb* sched_mlfq(scheduler_t* scheduler);
 
+static tcb* sched_matrix(scheduler_t* scheduler);
+
 /* Run Queue Operations */
 void rq_init(runqueue_t* runqueue);
 
@@ -182,6 +184,8 @@ void q_enqueue(queue_t* q, tcb* item);
 tcb* q_dequeue(queue_t* q);
 
 tcb* q_dequeue_shortest_runtime(queue_t* q);
+
+tcb* q_dequeue_longest_runtime(queue_t* q);
 
 int q_is_empty(queue_t* q);
 

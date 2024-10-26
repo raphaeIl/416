@@ -13,6 +13,8 @@ thread-worker.o: thread-worker.h
 
 ifeq ($(SCHED), PSJF)
 	$(CC) -pthread $(CFLAGS) -DPSJF thread-worker.c
+else ifeq ($(SCHED), MATRIX)
+	$(CC) -pthread $(CFLAGS) -DMATRIX thread-worker.c
 else ifeq ($(SCHED), MLFQ)
 	$(CC) -pthread $(CFLAGS) -DMLFQ thread-worker.c
 else

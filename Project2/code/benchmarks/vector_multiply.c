@@ -31,11 +31,11 @@ void vector_multiply(void* arg) {
 
 void verify() {
 	int i = 0;
-	sum = 0;
+	int verify_sum = 0;
 	for (i = 0; i < VECTOR_SIZE; i += 1) {
-		sum += r[i] * s[i];	
+		verify_sum += r[i] * s[i];	
 	}
-	//printf("verified sum is: %d\n", sum);
+	printf("verified sum is: %d\n", verify_sum);
 }
 
 int main(int argc, char **argv) {

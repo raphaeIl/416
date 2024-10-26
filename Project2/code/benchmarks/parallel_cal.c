@@ -41,18 +41,21 @@ void parallel_calculate(void* arg) {
 void verify() {
 	
 	int i = 0, j = 0;
-	sum = 0; // should not be using the global variable sum
-	memset(&pSum, 0, R_SIZE*sizeof(int));
+	int verify_sum = 0; // should not be using the global variable sum
+	int verify_pSum[R_SIZE];
+
+	memset(&verify_pSum, 0, R_SIZE*sizeof(int));
 
 	for (j = 0; j < R_SIZE; j += 1) {
 		for (i = 0; i < C_SIZE; ++i) {
-			pSum[j] += a[j][i] * i;
+			verify_pSum[j] += a[j][i] * i;
 		}
 	}
 	for (j = 0; j < R_SIZE; j += 1) {
-		sum += pSum[j];
+		verify_sum += verify_pSum[j];
 	}
-	//printf("verified sum is: %d\n", sum);
+
+	printf("verified sum is: %d\n", sum);
 }
 
 int main(int argc, char **argv) {
@@ -114,15 +117,11 @@ int main(int argc, char **argv) {
 
 	clock_gettime(CLOCK_REALTIME, &end);
 
-        printf("Total run time: %lu micro-seconds\n", 
-	       (end.tv_sec - start.tv_sec) * 1000000 + (end.tv_nsec - start.tv_nsec) / 1000);
+        printf("Total run time: %lu micro-seconds\n",
+               (end.tv_sec - start.tv_sec) * 1000000 + (end.tv_nsec - start.tv_nsec) / 1000);
 
 	// mutex destroy
 	pthread_mutex_destroy(&mutex);
-
-	fprintf(stderr , "Total sum is: %d\n", sum);
-	print_app_stats();
-	fprintf(stderr, "***************************\n");
 
 	// feel free to verify your answer here:
 	verify();
