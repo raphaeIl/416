@@ -13,6 +13,8 @@ char* virtual_bitmap = NULL;
 pde_t *pgdir = NULL;
 void* physical_memory = NULL;   
 
+struct tlb tlb_store;
+
 void set_physical_mem() {
 
     //Allocate physical memory using mmap or malloc; this is the total size of
@@ -36,6 +38,8 @@ void set_physical_mem() {
 
     printf("Physical memory and bitmaps initialized.\n");
     printf("# physical pages: %d, # virtual pages: %d\n", num_physical_pages, num_virtual_pages);
+
+    initialize_tlb();
 }
 
 
@@ -46,12 +50,30 @@ void set_physical_mem() {
  * Note: Make sure this is thread safe by locking around critical 
  *       data structures touched when interacting with the TLB
  */
+void initialize_tlb() {
+    for (int i = 0; i < TLB_ENTRIES; i++) {
+        tlb_store.entries[i].valid = 0; // Mark all entries as invalid
+    }
+    tlb_store.hits = 0;
+    tlb_store.misses = 0;
+}
+
 int TLB_add(void *va, void *pa)
 {
 
     /*Part 2 HINT: Add a virtual to physical page translation to the TLB */
+    unsigned long virtual_page = (unsigned long)va / PGSIZE;
+    unsigned long physical_page = (unsigned long)pa / PGSIZE;
 
-    return -1;
+    // Calculate the TLB index
+    int index = virtual_page % TLB_ENTRIES;
+
+    // Add the translation to the TLB
+    tlb_store.entries[index].virtual_page = virtual_page;
+    tlb_store.entries[index].physical_page = physical_page;
+    tlb_store.entries[index].valid = 1; // Mark the entry as valid
+
+    return 0; // Success
 }
 
 
@@ -70,8 +92,20 @@ pte_t* TLB_check(void *va) {
 
 
    /*This function should return a pte_t pointer*/
+    unsigned long virtual_page = (unsigned long)va / PGSIZE;
 
-   return NULL;
+    // Calculate the TLB index
+    int index = virtual_page % TLB_ENTRIES;
+
+    // Check if the entry is valid and matches the virtual page
+    if (tlb_store.entries[index].valid &&
+        tlb_store.entries[index].virtual_page == virtual_page) {
+        tlb_store.hits++; // Record a TLB hit
+        return (pte_t *)(tlb_store.entries[index].physical_page * PGSIZE);
+    }
+
+    tlb_store.misses++; // Record a TLB miss
+    return nullptr; // Translation not found
 }
 
 
@@ -87,7 +121,8 @@ print_TLB_missrate()
     /*Part 2 Code here to calculate and print the TLB miss rate*/
 
 
-
+    int total_lookups = tlb_store.hits + tlb_store.misses;
+    miss_rate = (total_lookups == 0) ? 0.0 : ((double)tlb_store.misses / total_lookups) * 100;
 
     fprintf(stderr, "TLB miss rate %lf \n", miss_rate);
 }
@@ -107,6 +142,13 @@ pte_t* translate(pde_t* pgdir, void* va) {
     * translation exists, then you can return physical address from the TLB.
     */
     // 0001001000 1101000101 011001111000
+
+    pte_t* pa = TLB_check(va);
+    if (pa != nullptr) 
+    {
+        return pa; // Translation found in the TLB
+    }
+
     unsigned int virtual_address = (unsigned int)va;
     unsigned int first_level_address = extract_bits(virtual_address, 22, 32);
     unsigned int second_level_address = extract_bits(virtual_address, 12, 22);
@@ -127,6 +169,9 @@ pte_t* translate(pde_t* pgdir, void* va) {
     
     unsigned int target_entry = second_level_table[second_level_address];
     unsigned int physical_address = target_entry << 12 | offset;
+
+    pte_t *entry = &second_level_table[second_level_address];
+    TLB_add(va, (void *)(*entry & ~0xFFF));
 
     // printf("physical address: 0x%x\n", physical_address);
     return (pte_t *)physical_address;
@@ -176,6 +221,9 @@ int map_page(pde_t *pgdir, void *va, void *pa)
     unsigned int physical_offset = extract_bits(physical_address, 12, 32);
 
     second_level_table[second_level_address] = physical_offset;
+
+
+    TLB_add(va, pa);
     return 0;
 }
 
@@ -366,17 +414,58 @@ int put_data(void *va, void *val, int size) {
      * than one page. Therefore, you may have to find multiple pages using translate()
      * function.
      */
-    // if (physical_memory == NULL)
-    // {
 
-    // }
+    if (va == nullptr || !val || size <= 0) {
+        printf("Invalid Pointer or Size\n");
+        return -1;
+    }
 
-    // int num_pages = (size + PGSIZE - 1) / PGSIZE;
+    if (physical_memory == NULL)
+    {
+        printf("Please malloc first\n");
+        return -1;
+    }
 
+    unsigned long virtual_address = (unsigned long)va;
+    unsigned char *data = (unsigned char*)val;
+    int remaining_data_size = size;
 
+    while (remaining_data_size > 0) {
+        // Translate the virtual address to a physical address
+        pte_t* current_physical_address = translate(pgdir, (void *)virtual_address);
+
+        if (current_physical_address == nullptr) {
+            printf("Virtual address has not been mapped or allocated\n");
+            return -1;
+        }
+
+        // Get the physical page address
+        unsigned long physical_page = (unsigned long)current_physical_address & ~0xFFF; // Mask out the offset bits
+
+        // Calculate the offset within the current page
+        int offset = virtual_address & 0xFFF;
+
+        // Calculate how much data can be copied to the current page
+        int copy_size = PGSIZE - offset; // Space remaining in the current page
+        if (copy_size > remaining_data_size) {
+            copy_size = remaining_data_size; // Only copy what remains
+        }
+
+        // printf("copy_size: %d\n", copy_size);
+        // printf("offset: %d\n", offset);
+        // printf("physical_page: 0x%x\n", physical_page);
+        // printf("data: %d\n", data);
+        // Copy data to the physical memory
+        memcpy(physical_memory + (physical_page + offset), data, copy_size);
+
+        // Update pointers and counters
+        virtual_address += copy_size; // Move to the next virtual address
+        data += copy_size;    // Move to the next source data position
+        remaining_data_size -= copy_size; // Decrease remaining data size
+    }
     /*return -1 if put_data failed and 0 if put is successfull*/
 
-    return -1;
+    return 0;
 }
 
 
@@ -387,7 +476,49 @@ void get_data(void *va, void *val, int size) {
     * "val" address. Assume you can access "val" directly by derefencing them.
     */
 
+    if (va == nullptr || !val || size <= 0) {
+        printf("Invalid Pointer or Size\n");
+        return;
+    }
 
+    if (physical_memory == NULL)
+    {
+        printf("Please malloc first\n");
+        return;
+    }
+
+    unsigned long va_int = (unsigned long)va;
+    unsigned char *dest = (unsigned char *)val;
+    int remaining_size = size;
+
+    while (remaining_size > 0) {
+        // Translate the virtual address to a physical address
+        pte_t *pa = translate(pgdir, (void *)va_int);
+        if (pa == nullptr) {
+            fprintf(stderr, "Invalid virtual address: %p\n", (void *)va_int);
+            return;
+        }
+
+        // Get the physical page address
+        unsigned long pa_int = (unsigned long)pa & ~0xFFF; // Mask out the offset bits
+
+        // Calculate the offset within the current page
+        int offset = va_int & 0xFFF;
+
+        // Calculate how much data can be read from the current page
+        int copy_size = PGSIZE - offset; // Space remaining in the current page
+        if (copy_size > remaining_size) {
+            copy_size = remaining_size; // Only copy what remains
+        }
+
+        // Read data from the physical memory
+        memcpy(dest, physical_memory + (pa_int + offset), copy_size);
+
+        // Update pointers and counters
+        va_int += copy_size; // Move to the next virtual address
+        dest += copy_size;   // Move to the next destination buffer position
+        remaining_size -= copy_size; // Decrease remaining data size
+    }
 
 }
 

@@ -3,7 +3,6 @@
 #include <stdio.h>
 #include "../my_vm.h"
 
-
 void test_translate() {
     // Create mock page directory and page tables
     pde_t* pgdir = (pde_t*)malloc(1024 * sizeof(pde_t)); // First-level page directory (1024 entries)
@@ -92,6 +91,23 @@ void test_malloc() {
 
     void* f = n_malloc(4096);
     printf("allocated e: 0x%x\n", f);
+
+
+    int data = 342;
+
+    // Write the data to memory
+    if (put_data(d, &data, sizeof(data)) == 0) {
+        printf("Successfully wrote %ld bytes of data to virtual address 0x%x\n", sizeof(data), d);
+    } else {
+        printf("Failed to write data to virtual address 0x%x\n", d);
+    }
+
+    // // Verify the data
+    char read_data[8192];
+    get_data(d, read_data, sizeof(read_data));
+
+    printf("read_data: %d\n", *((int*)read_data));
+
 }
 
 void test_n_free() {
@@ -109,13 +125,81 @@ void test_n_free() {
 
 }
 
+void test_put_data() {
+    // Allocate 2 pages of memory
+    void *va = n_malloc(2 * PGSIZE);
+    if (va == nullptr) {
+        printf("Failed to allocate memory\n");
+        return;
+    }
+    printf("Allocated 2 pages starting at 0x%x\n", va);
+
+    // Data to write
+    char data[8192];
+    for (int i = 0; i < sizeof(data); i++) {
+        data[i] = i % 256; // Fill with sample data
+    }
+
+    // Write the data to memory
+    if (put_data(va, data, sizeof(data)) == 0) {
+        printf("Successfully wrote %ld bytes of data to virtual address 0x%x\n", sizeof(data), va);
+    } else {
+        printf("Failed to write data to virtual address 0x%x\n", va);
+    }
+
+    // // Verify the data
+    char read_data[8192];
+    get_data(va, read_data, sizeof(read_data));
+    if (memcmp(data, read_data, sizeof(data)) == 0) {
+        printf("Data verification successful\n");
+    } else {
+        printf("Data verification failed\n");
+    }
+}
+
+void test_get_data() {
+    // Allocate 2 pages of memory
+    void *va = n_malloc(2 * PGSIZE);
+    if (va == nullptr) {
+        printf("Failed to allocate memory\n");
+        return;
+    }
+    printf("Allocated 2 pages starting at %p\n", va);
+
+    // Data to write
+    char write_data[8192];
+    for (int i = 0; i < sizeof(write_data); i++) {
+        write_data[i] = i % 256; // Fill with sample data
+    }
+
+    // Write the data to memory
+    if (put_data(va, write_data, sizeof(write_data)) == 0) {
+        printf("Successfully wrote %ld bytes of data to virtual address %p\n", sizeof(write_data), va);
+    } else {
+        printf("Failed to write data to virtual address %p\n", va);
+    }
+
+    // Read the data back
+    char read_data[8192];
+    get_data(va, read_data, sizeof(read_data));
+
+    // Verify the data
+    if (memcmp(write_data, read_data, sizeof(write_data)) == 0) {
+        printf("Data verification successful\n");
+    } else {
+        printf("Data verification failed\n");
+    }
+}
 int main() {
     // test_map();
     // test_translate();
     // test_get_next_avail();
     // test_n_free();
 
+    // test_put_data();
+    // test_get_data();
 
 
     test_malloc();
+    print_TLB_missrate();
 }

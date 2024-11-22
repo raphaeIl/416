@@ -4,6 +4,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <math.h>
+#include <string.h>
 
 //Assume the address space is 32 bits, so the max memory size is 4GB
 //Page size is 4KB
@@ -27,21 +28,30 @@ typedef unsigned long pde_t;
 #define TLB_ENTRIES 512
 #define nullptr ((void *)-1)
 
+struct tlb_entry {
+    unsigned long virtual_page;  // Virtual page number
+    unsigned long physical_page; // Physical page number
+    int valid;                   // Valid bit: 1 if entry is valid, 0 otherwise
+};
+
+
 //Structure to represents TLB
 struct tlb {
     /*Assume your TLB is a direct mapped TLB with number of entries as TLB_ENTRIES
     * Think about the size of each TLB entry that performs virtual to physical
     * address translation.
     */
-
+    struct tlb_entry entries[TLB_ENTRIES];
+    int hits;    // Number of TLB hits
+    int misses;  // Number of TLB misses
 };
 
-// struct tlb tlb_store;
 
 // Setup functions
 void set_physical_mem();
 
 // TLB Functions
+void initialize_tlb();
 int TLB_add(void *va, void *pa);
 pte_t *TLB_check(void *va);
 void print_TLB_missrate();
