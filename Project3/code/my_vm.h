@@ -25,6 +25,7 @@ typedef unsigned long pte_t;
 typedef unsigned long pde_t;
 
 #define TLB_ENTRIES 512
+#define nullptr ((void *)-1)
 
 //Structure to represents TLB
 struct tlb {
@@ -49,6 +50,9 @@ void print_TLB_missrate();
 pte_t* translate(pde_t *pgdir, void *va);
 int map_page(pde_t *pgdir, void *va, void* pa);
 
+void* get_next_avail_virtual(int num_pages);
+void* get_next_avail_physical();
+
 // Allocation functions
 void *n_malloc(unsigned int num_bytes);
 void n_free(void *va, int size);
@@ -61,5 +65,6 @@ void mat_mult(void *mat1, void *mat2, int size, void *answer);
 // Bit Util Functions from Project 1
 unsigned int extract_bits(unsigned int value, int begin, int end);
 void set_bit_at_index(char *bitmap, int index);
+void clear_bit_at_index(char *bitmap, int index);
 int get_bit_at_index(char *bitmap, int index);
 #endif
