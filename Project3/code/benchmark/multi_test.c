@@ -10,9 +10,11 @@ int matrix_size = 5;
 
 void *alloc_mem(void *id_arg) {
     int id = *((int *)id_arg);
+    printf("allocating id: %d\n", id);
+
     pointers[id] = n_malloc(alloc_size);
 
-    printf("mallic returned\n");
+    printf("id: %d, malloc returned: 0x%x\n", id, pointers[id]);
     return NULL;
 }
 
@@ -40,6 +42,7 @@ void *mat_mem(void *id_arg) {
 
 void *free_mem(void *id_arg) {
     int id = *((int *)id_arg);
+    printf("freeing id: %d\n", id);
     n_free(pointers[id], alloc_size);
 }
 

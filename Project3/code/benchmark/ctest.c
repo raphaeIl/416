@@ -7,7 +7,7 @@ void test_get_next_avail() {
     set_physical_mem();
     // Request 2 pages
     void* va = get_next_avail_virtual(2);
-    if (va != nullptr) {
+    if (va != NULL) {
         printf("Found available block at virtual address: 0x%x\n", va);
     } else {
         printf("No available block found\n");
@@ -15,7 +15,7 @@ void test_get_next_avail() {
 
     // Request 4 pages (should skip over allocated pages 4-6)
     va = get_next_avail_virtual(4);
-    if (va != nullptr) {
+    if (va != NULL) {
         printf("Found available block at virtual address: 0x%x\n", va);
     } else {
         printf("No available block found\n");
@@ -105,7 +105,7 @@ void test_n_free() {
 void test_put_data() {
     // Allocate 2 pages of memory
     void *va = n_malloc(2 * PGSIZE);
-    if (va == nullptr) {
+    if (va == NULL) {
         printf("Failed to allocate memory\n");
         return;
     }
@@ -137,7 +137,7 @@ void test_put_data() {
 void test_get_data() {
     // Allocate 2 pages of memory
     void *va = n_malloc(2 * PGSIZE);
-    if (va == nullptr) {
+    if (va == NULL) {
         printf("Failed to allocate memory\n");
         return;
     }

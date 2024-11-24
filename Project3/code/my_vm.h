@@ -32,14 +32,6 @@ typedef unsigned long pte_t;
 typedef unsigned long pde_t;
 
 #define TLB_ENTRIES 512
-#define nullptr ((void *)-1) 
-/*
-    Note that in every scenario where a pointer does not exist, I will return this nullptr (with value -1) instead of NULL,
-    I chose to do this because since our physical and virtual addresses/memory all starts at 0, a pointer with
-    a value of 0 (NULL's value in C) is perfectly valid in our case, therefore using C's default null value will
-    cause the pointer at 0 to become invalid and not useable which is not what we want.
-    Thus I will use this nullptr for return values and also when null checking for all my operations.
-*/ 
 
 typedef struct {
     unsigned long virtual_page;
@@ -71,8 +63,6 @@ typedef struct {
     void* physical_memory;   
 
     struct tlb tlb_store;
-
-    pthread_mutex_t global_lock;
 } vm_t;
 
 // Setup functions
@@ -92,6 +82,8 @@ int map_page(pde_t *pgdir, void *va, void* pa);
 
 void* get_next_avail_virtual(int num_pages);
 void* get_next_avail_physical();
+
+int is_virtual_address_available(void* va);
 
 // Allocation functions
 void *n_malloc(unsigned int num_bytes);

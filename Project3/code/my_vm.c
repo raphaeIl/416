@@ -2,6 +2,8 @@
 
 vm_t vm;
 
+pthread_mutex_t global_lock = PTHREAD_MUTEX_INITIALIZER;
+
 /*
 Function responsible for allocating and setting your physical memory 
 */
@@ -9,7 +11,6 @@ void set_physical_mem() {
 
     //Allocate physical memory using mmap or malloc; this is the total size of
     //your memory you are simulating
-
     vm.physical_memory = malloc(MEMSIZE);
 
     if (vm.physical_memory == NULL) 
@@ -29,7 +30,9 @@ void set_physical_mem() {
     printf("Physical memory and bitmaps initialized.\n");
     printf("# physical pages: %d, # virtual pages: %d\n", vm.num_physical_pages, vm.num_virtual_pages);
 
-    pthread_mutex_init(&vm.global_lock, NULL);
+    set_bit_at_index(vm.physical_bitmap, 0); // set bit 0 to always used
+    set_bit_at_index(vm.virtual_bitmap, 0);
+
     TLB_init();
 }
 
@@ -40,7 +43,7 @@ void set_physical_mem() {
 void TLB_init() {
     for (int i = 0; i < TLB_ENTRIES; i++) 
     {
-        vm.tlb_store.tlb_entries[i].valid = 0; // Mark all entries as invalid
+        vm.tlb_store.tlb_entries[i].valid = 0; // set all entries as invalid
     }
     
     vm.tlb_store.hits = 0;
@@ -113,7 +116,7 @@ pte_t* TLB_check(void *va) {
     }
 
     vm.tlb_store.misses++;
-    return nullptr;
+    return NULL;
 }
 
 
@@ -146,7 +149,7 @@ pte_t* translate(pde_t* pgdir, void* va) {
     */
     pte_t* pa = TLB_check(va);
 
-    if (pa != nullptr) // cached translation found inside tlb
+    if (pa != NULL) // cached translation found inside tlb
     {
         // printf("Translation exists in the TLB!\n");
         return pa;
@@ -161,7 +164,7 @@ pte_t* translate(pde_t* pgdir, void* va) {
     if (second_level_table == NULL) // page table entries are actual c pointers so we use NULL here instead of nullptr (which is used for our custom pointers)
     {
         printf("That page table entry does not exist!\n");
-        return nullptr;
+        return NULL;
     }
 
     int num_offset_bits = (int)log2(PGSIZE); 
@@ -171,7 +174,7 @@ pte_t* translate(pde_t* pgdir, void* va) {
 
     TLB_add(va, (void*)physical_address);
 
-    printf("physical address: 0x%x\n", physical_address);
+    // printf("physical address: 0x%x\n", physical_address);
     return (pte_t *)physical_address;
 }
 
@@ -200,18 +203,11 @@ int map_page(pde_t* pgdir, void *va, void *pa)
     {
         printf("mapping not found, allowcating second-level table.\n");
         pgdir[page_dir_index] = (unsigned int)calloc(page_directory_size, sizeof(pte_t)); // 10 bits 2^10 = 1024
-
-        // set to nullptr (-1) instead of 0
-        pte_t* second_level_table = (pte_t *)pgdir[page_dir_index];
-        for (int i = 0; i < page_directory_size; i++) 
-        {
-            second_level_table[i] = (pte_t)nullptr;
-        }
     }   
 
     pte_t* second_level_table = (pte_t*)pgdir[page_dir_index];
 
-    if (second_level_table[page_table_index] != (int)nullptr)
+    if (second_level_table[page_table_index] != NULL)
     {
         printf("virtual address: 0x%x with page_table_index: 0x%d already has a mapping! of: 0x%x\n", va, second_level_table[page_table_index], page_table_index);
         return -1;
@@ -225,7 +221,7 @@ int map_page(pde_t* pgdir, void *va, void *pa)
 
     // printf("map_page: 0x%x=0x%x, : 0x%x\n", page_table_index, ppn, translate(vm.pgdir, va));
     
-    if (TLB_check(va) == nullptr) // cached translation found inside tlb
+    if (TLB_check(va) == NULL) // cached translation found inside tlb
     {
         TLB_add(va, pa);
     }
@@ -240,7 +236,7 @@ int map_page(pde_t* pgdir, void *va, void *pa)
     that has enough continous space for *num_pages*, not just any opened single space. 
 */
 void* get_next_avail_virtual(int num_pages) {
-    for (int i = 0; i <= vm.num_virtual_pages - num_pages; i++)
+    for (int i = 1; i <= vm.num_virtual_pages - num_pages; i++)
     {
         int is_available = 1;
 
@@ -256,15 +252,28 @@ void* get_next_avail_virtual(int num_pages) {
         if (is_available)
         {
             unsigned int available_virtual_address = i * PGSIZE;
-            // printf("avilable_page: %x\n", avilable_page);
             return (void*)available_virtual_address;
         }
     }
-    return nullptr; // custom null because the bitmap starts at 0 so 0 is a valid page (not null)
+    return NULL;
+}
+
+int is_virtual_address_available(void* va)
+{
+    unsigned int virtual_address = (unsigned int)va;
+
+    int bitmap_bit = get_bit_at_index(vm.virtual_bitmap, virtual_address / PGSIZE);
+
+    // unsigned int page_dir_index, page_table_index, offset;
+    // extract_data_from_va(va, &page_dir_index, &page_table_index, &offset);
+
+    // pte_t* second_level_table = (pte_t*)vm.pgdir[page_dir_index];
+    
+    return bitmap_bit == 0;
 }
 
 void* get_next_avail_physical() {
-    for (int i = 0; i < vm.num_physical_pages; i++)
+    for (int i = 1; i < vm.num_physical_pages; i++)
     {
         if (get_bit_at_index(vm.physical_bitmap, i) == 0)
         {
@@ -274,7 +283,7 @@ void* get_next_avail_physical() {
         }
     }
 
-    return nullptr; 
+    return NULL; 
 }
 
 /* Function responsible for allocating pages and used by the benchmark
@@ -297,9 +306,9 @@ void *n_malloc(unsigned int num_bytes) {
     * have to mark which physical pages are used. 
     */
 
-    pthread_mutex_lock(&vm.global_lock);
+    pthread_mutex_lock(&global_lock);
     void* ret = __n_malloc_internal(num_bytes);
-    pthread_mutex_unlock(&vm.global_lock);
+    pthread_mutex_unlock(&global_lock);
 
     return ret;
 }
@@ -315,9 +324,9 @@ void n_free(void *va, int size) {
      * Part 2: Also, remove the translation from the TLB
      */
 
-    pthread_mutex_lock(&vm.global_lock);
+    pthread_mutex_lock(&global_lock);
     __n_free_internal(va, size);
-    pthread_mutex_unlock(&vm.global_lock);
+    pthread_mutex_unlock(&global_lock);
 }
 
 int put_data(void *va, void *val, int size) {
@@ -328,9 +337,9 @@ int put_data(void *va, void *val, int size) {
      * function.
      */
 
-    pthread_mutex_lock(&vm.global_lock);
+    pthread_mutex_lock(&global_lock);
     int ret = __put_data_internal(va, val, size);
-    pthread_mutex_unlock(&vm.global_lock);
+    pthread_mutex_unlock(&global_lock);
     /*return -1 if put_data failed and 0 if put is successfull*/
 
     return ret;
@@ -342,9 +351,9 @@ void get_data(void *va, void *val, int size) {
     /* HINT: put the values pointed to by "va" inside the physical memory at given
     * "val" address. Assume you can access "val" directly by derefencing them.
     */
-    pthread_mutex_lock(&vm.global_lock);
+    pthread_mutex_lock(&global_lock);
     __get_data_internal(va, val, size);
-    pthread_mutex_unlock(&vm.global_lock);
+    pthread_mutex_unlock(&global_lock);
 }
 
 /*
@@ -458,6 +467,7 @@ void extract_page_number_from_address(void* address, unsigned int* page_number)
 }
 
 void* __n_malloc_internal(unsigned int num_bytes) {
+    printf("Start\n");
     int num_offset_bits = (int)log2(PGSIZE); 
     int num_bit_per_level = (NUM_BIT_ADDRESS_SPACE - num_offset_bits) / NUM_LEVELS;
     int page_directory_size = pow(2, num_bit_per_level);
@@ -472,27 +482,29 @@ void* __n_malloc_internal(unsigned int num_bytes) {
 
     unsigned int num_pages_needed = (int)ceil((double)num_bytes / PGSIZE);
 
-    pte_t next_available_virtual_address = (pte_t)get_next_avail_virtual(num_pages_needed);
+    pte_t next_available_virtual_address = (pte_t)get_next_avail_virtual(num_pages_needed);;
+
+    printf("next_available_virtual_address: 0x%x\n", next_available_virtual_address);
 
     // printf("malloc bytes[%d] pages needed: %d\n", num_bytes, num_pages_needed);
 
-    if (next_available_virtual_address == (int)nullptr)
+    if (next_available_virtual_address == NULL)
     {
         printf("No available virtual memory for allocation\n");
-        return nullptr;
+        return NULL;
     }
 
-    // printf("next_available_virtual_address: 0x%x\n", next_available_virtual_address);
+    printf("next_available_virtual_address: 0x%x\n", next_available_virtual_address);
     pte_t current_virtual_address = next_available_virtual_address;
 
     for (int i = 0; i < num_pages_needed; i++) {
         printf("num_pages_needed: %d\n", num_pages_needed);
         unsigned int current_physical_address = (unsigned int)get_next_avail_physical(); 
         
-        if (current_physical_address == (int)nullptr) 
+        if (current_physical_address == NULL) 
         {
             printf("Out of physical memory\n");
-            return nullptr;
+            return NULL;
         }
 
         // Map the virtual page to the physical page
@@ -501,7 +513,7 @@ void* __n_malloc_internal(unsigned int num_bytes) {
         if (map_result != 0) 
         {
             printf("Failed to map page for virtual address\n");
-            return nullptr;
+            return NULL;
         }
 
         int virtual_page_index = current_virtual_address / PGSIZE;
@@ -511,19 +523,20 @@ void* __n_malloc_internal(unsigned int num_bytes) {
         set_bit_at_index(vm.virtual_bitmap, virtual_page_index);
         set_bit_at_index(vm.physical_bitmap, physical_page_index);
         printf("Mapped virtual address: 0x%x to physical address: 0x%x\n", (void *)current_virtual_address, current_physical_address);
-
+        printf("0x%x virtual bitmap set, 0x%x physical bitmap set\n", current_virtual_address, current_physical_address);
         current_virtual_address += PGSIZE;
     }
 
     printf("Confirmation - 0x%x -> 0x%x\n", next_available_virtual_address, translate(vm.pgdir, (void*)next_available_virtual_address));
 
+    printf("End\n");
     return (void*)next_available_virtual_address;
 }
 
 void __n_free_internal(void *va, int size) { // freeing the whole page even if size is not a multiple of PGSIZE
-    if (va == nullptr || size <= 0)
+    if (!va || size <= 0)
     {
-        printf("Invalid Pointer or Size\n");
+        printf("Invalid Pointer[0x%x] or Size[%d]\n", va, size);
         return;
     }
 
@@ -537,7 +550,7 @@ void __n_free_internal(void *va, int size) { // freeing the whole page even if s
 
         printf("Freeing memory at: current_virtual_address: 0x%x, physical: 0x%x\n", current_virtual_address, current_physical_address);
         
-        if (current_physical_address == (int)nullptr) 
+        if (current_physical_address == NULL) 
         {
             printf("Virtual address has not been mapped or allocated\n");
             return;
@@ -553,7 +566,7 @@ void __n_free_internal(void *va, int size) { // freeing the whole page even if s
 
         if (second_level_table != NULL) 
         {
-            second_level_table[page_table_index] = (int)nullptr;
+            second_level_table[page_table_index] = NULL;
         }
 
         clear_bit_at_index(vm.virtual_bitmap, virtual_page_index);
@@ -561,10 +574,26 @@ void __n_free_internal(void *va, int size) { // freeing the whole page even if s
         TLB_remove((void*)current_virtual_address);
         // printf("cleared bit at physical_bitmap index: %d, physical_page_index: %d\n", virtual_page_index, physical_page_index);
     }
+
+    printf("Physical Bitmap: ");
+    for (int i = 0; i < 20; i++)
+    {
+        printf("%d ", get_bit_at_index(vm.physical_bitmap, i));
+    }
+
+    printf("\n");
+
+    printf("Virtual Bitmap: ");
+    for (int i = 0; i < 20; i++)
+    {
+        printf("%d ", get_bit_at_index(vm.virtual_bitmap, i));
+    }
+
+    printf("\n");
 }
 
 int __put_data_internal(void *va, void *val, int size) {
-    if (va == nullptr || !val || size <= 0) {
+    if (!va || !val || size <= 0) {
         printf("Invalid Pointer or Size\n");
         return -1;
     }
@@ -582,7 +611,7 @@ int __put_data_internal(void *va, void *val, int size) {
     while (remaining_data_size > 0) {
         unsigned int current_physical_address = (unsigned int)translate(vm.pgdir, (void *)virtual_address);
 
-        if (current_physical_address == (int)nullptr) 
+        if (current_physical_address == NULL) 
         {
             printf("Virtual address has not been mapped or allocated\n");
             return -1;
@@ -614,7 +643,7 @@ int __put_data_internal(void *va, void *val, int size) {
 }
 
 void __get_data_internal(void *va, void *val, int size) {
-    if (va == nullptr || !val || size <= 0) {
+    if (!va || !val || size <= 0) {
         printf("Invalid Pointer or Size\n");
         return;
     }
@@ -633,7 +662,7 @@ void __get_data_internal(void *va, void *val, int size) {
 
         unsigned int current_physical_address = (unsigned int)translate(vm.pgdir, (void *)virtual_address);
 
-        if (current_physical_address == (int)nullptr) 
+        if (current_physical_address == NULL) 
         {
             printf("Virtual address has not been mapped or allocated\n");
             return;
