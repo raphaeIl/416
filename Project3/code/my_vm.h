@@ -5,12 +5,12 @@
 #include <stdio.h>
 #include <math.h>
 #include <string.h>
+#include <pthread.h>
 
 //Assume the address space is 32 bits, so the max memory size is 4GB
 //Page size is 4KB
 
 //Add any important includes here which you may need
-
 #define PGSIZE 4096
 
 // Maximum size of virtual memory
@@ -19,6 +19,12 @@
 // Size of "physcial memory"
 #define MEMSIZE 1024*1024*1024
 
+// How many Levels does the Page Table have?
+#define NUM_LEVELS 2
+
+// Address Space Bits
+#define NUM_BIT_ADDRESS_SPACE 32
+
 // Represents a page table entry
 typedef unsigned long pte_t;
 
@@ -26,34 +32,59 @@ typedef unsigned long pte_t;
 typedef unsigned long pde_t;
 
 #define TLB_ENTRIES 512
-#define nullptr ((void *)-1)
+#define nullptr ((void *)-1) 
+/*
+    Note that in every scenario where a pointer does not exist, I will return this nullptr (with value -1) instead of NULL,
+    I chose to do this because since our physical and virtual addresses/memory all starts at 0, a pointer with
+    a value of 0 (NULL's value in C) is perfectly valid in our case, therefore using C's default null value will
+    cause the pointer at 0 to become invalid and not useable which is not what we want.
+    Thus I will use this nullptr for return values and also when null checking for all my operations.
+*/ 
 
-struct tlb_entry {
-    unsigned long virtual_page;  // Virtual page number
-    unsigned long physical_page; // Physical page number
+typedef struct {
+    unsigned long virtual_page;
+    unsigned long physical_page; 
     int valid;                   // Valid bit: 1 if entry is valid, 0 otherwise
-};
+} tlb_entry_t;
 
-
-//Structure to represents TLB
+// Structure to represents TLB
 struct tlb {
     /*Assume your TLB is a direct mapped TLB with number of entries as TLB_ENTRIES
     * Think about the size of each TLB entry that performs virtual to physical
     * address translation.
     */
-    struct tlb_entry entries[TLB_ENTRIES];
-    int hits;    // Number of TLB hits
-    int misses;  // Number of TLB misses
+    tlb_entry_t tlb_entries[TLB_ENTRIES];
+    
+    int hits;    
+    int misses;  
 };
 
+// Main Data Struct for the VM
+typedef struct {
+    int num_physical_pages;
+    int num_virtual_pages;
+
+    char* physical_bitmap; 
+    char* virtual_bitmap;   
+
+    pde_t* pgdir;
+    void* physical_memory;   
+
+    struct tlb tlb_store;
+
+    pthread_mutex_t global_lock;
+} vm_t;
 
 // Setup functions
 void set_physical_mem();
 
 // TLB Functions
-void initialize_tlb();
+void TLB_init();
+
 int TLB_add(void *va, void *pa);
+
 pte_t *TLB_check(void *va);
+
 void print_TLB_missrate();
 
 // Page Table Functions
@@ -72,9 +103,25 @@ int put_data(void *va, void *val, int size);
 void get_data(void *va, void *val, int size);
 void mat_mult(void *mat1, void *mat2, int size, void *answer);
 
+// I made these "internal" functions for functions that needs to be entirely mutex locked, doing this makes it easier since i can just unlock and lock once, instead of doing it multiple times,
+// in my opinion for the below functions the whole function is the critical section, so i'm not just locking speific parts
+// So n_malloc and n_free are bascially just wrappers for my internal functions (which the internal functions shouldnt ever be called from outside, "private")
+
+/* Internal Functions */
+void* __n_malloc_internal(unsigned int num_bytes);
+void __n_free_internal(void *va, int size);
+
+int __put_data_internal(void *va, void *val, int size);
+void __get_data_internal(void *va, void *val, int size);
+
 // Bit Util Functions from Project 1
 unsigned int extract_bits(unsigned int value, int begin, int end);
 void set_bit_at_index(char *bitmap, int index);
 void clear_bit_at_index(char *bitmap, int index);
 int get_bit_at_index(char *bitmap, int index);
+
+// Other Util Functions
+void extract_indexes_from_va(void* va, unsigned int* page_dir_index, 
+    unsigned int* page_table_index, unsigned int* offset);
+
 #endif
