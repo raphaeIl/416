@@ -11,6 +11,8 @@ int matrix_size = 5;
 void *alloc_mem(void *id_arg) {
     int id = *((int *)id_arg);
     pointers[id] = n_malloc(alloc_size);
+
+    printf("mallic returned\n");
     return NULL;
 }
 
@@ -47,9 +49,10 @@ int main() {
     for (int i = 0; i < num_threads; i++)
         ids[i] = i;
 
-    for (int i = 0; i < num_threads; i++)
+    for (int i = 0; i < num_threads; i++) {
+        printf("i: %d\n", i);
         pthread_create(&threads[i], NULL, alloc_mem, (void *)&ids[i]);
-    
+    }
     for (int i = 0; i < num_threads; i++)
         pthread_join(threads[i], NULL);
 

@@ -120,7 +120,8 @@ void clear_bit_at_index(char *bitmap, int index);
 int get_bit_at_index(char *bitmap, int index);
 
 // Other Util Functions
-void extract_indexes_from_va(void* va, unsigned int* page_dir_index, 
+void extract_data_from_va(void* va, unsigned int* page_dir_index, 
     unsigned int* page_table_index, unsigned int* offset);
 
+void extract_page_number_from_address(void* address, unsigned int* page_number);
 #endif
