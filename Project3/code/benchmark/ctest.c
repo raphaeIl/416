@@ -48,12 +48,13 @@ void test_map() {
 
 void test_malloc() {
     void *a = n_malloc(400);
+    printf("allocated a: 0x%x\n", a);
+
     int old_a = (int)a;
     void *b = n_malloc(4097);
-    void *c = n_malloc(400);
-
-    printf("allocated a: 0x%x\n", a);
     printf("allocated b: 0x%x\n", b);
+
+    void *c = n_malloc(400);
     printf("allocated c: 0x%x\n", c);
 
     n_free(b, 4097);
@@ -66,23 +67,23 @@ void test_malloc() {
     printf("allocated e: 0x%x\n", e);
 
     void* f = n_malloc(4096);
-    printf("allocated e: 0x%x\n", f);
+    printf("allocated f: 0x%x\n", f);
 
 
-    // int data = 342;
+    int data = 342;
 
-    // // Write the data to memory
-    // if (put_data(d, &data, sizeof(data)) == 0) {
-    //     printf("Successfully wrote %ld bytes of data to virtual address 0x%x\n", sizeof(data), d);
-    // } else {
-    //     printf("Failed to write data to virtual address 0x%x\n", d);
-    // }
+    // Write the data to memory
+    if (put_data(d, &data, sizeof(data)) == 0) {
+        printf("Successfully wrote %ld bytes of data to virtual address 0x%x\n", sizeof(data), d);
+    } else {
+        printf("Failed to write data to virtual address 0x%x\n", d);
+    }
 
-    // // // Verify the data
-    // char read_data[8192];
-    // get_data(d, read_data, sizeof(read_data));
+    // // Verify the data
+    char read_data[8192];
+    get_data(d, read_data, sizeof(read_data));
 
-    // printf("read_data: %d\n", *((int*)read_data));
+    printf("read_data: %d\n", *((int*)read_data));
 
 }
 

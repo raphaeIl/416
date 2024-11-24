@@ -80,10 +80,9 @@ void set_physical_mem();
 
 // TLB Functions
 void TLB_init();
-
 int TLB_add(void *va, void *pa);
-
 pte_t *TLB_check(void *va);
+int TLB_remove(void *va);
 
 void print_TLB_missrate();
 
