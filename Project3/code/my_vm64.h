@@ -20,10 +20,10 @@
 #define MEMSIZE 1024*1024*1024
 
 // How many Levels does the Page Table have?
-#define NUM_LEVELS 2
+#define NUM_LEVELS 4
 
 // Address Space Bits
-#define NUM_BIT_ADDRESS_SPACE 32
+#define NUM_BIT_ADDRESS_SPACE 64
 
 // Represents a page table entry
 typedef unsigned long pte_t;
@@ -54,11 +54,6 @@ struct tlb {
     int misses;  
 };
 
-typedef struct page_metadata {
-    unsigned int remaining_space;  // remaining space in the page
-    unsigned int next_free_offset; // offset for the next allocation
-} page_metadata_t;
-
 // Main Data Struct for the VM, will be initialized as a global variable
 typedef struct {
     int num_physical_pages; // total number of physical pages, based on MEMESIZE and PGSIZE
@@ -71,8 +66,6 @@ typedef struct {
     void* physical_memory; // the actual physical memory
 
     struct tlb tlb_store; // global variable for the tlb
-
-    page_metadata_t* page_metadata; // array of page metadatas
 } vm_t;
 
 // Setup functions
@@ -94,7 +87,7 @@ void* get_next_avail_virtual(int num_pages); // this function gets the next avai
 void* get_next_avail_physical(); // similar to above, this getes the next available physical address (does not have to be contiguous)
 
 // Allocation functions
-void *n_malloc(unsigned int num_bytes);
+void *n_malloc(unsigned long num_bytes);
 void n_free(void *va, int size);
 
 // Data operations
@@ -107,7 +100,7 @@ void mat_mult(void *mat1, void *mat2, int size, void *answer);
 // So n_malloc and n_free are bascially just wrappers for my internal functions (which the internal functions shouldnt ever be called from outside, "private")
 
 /* Internal Functions */
-void* __n_malloc_internal(unsigned int num_bytes);
+void* __n_malloc_internal(unsigned long num_bytes);
 void __n_free_internal(void *va, int size);
 
 int __put_data_internal(void *va, void *val, int size);
@@ -118,11 +111,10 @@ void set_bit_at_index(char *bitmap, int index);
 void clear_bit_at_index(char *bitmap, int index);
 int get_bit_at_index(char *bitmap, int index);
 
-unsigned int extract_bits(unsigned int value, int begin, int end); // this function extracts the specified segment of bits from a value
+unsigned long extract_bits(unsigned long value, int begin, int end); // this function extracts the specified segment of bits from a value
 
 // Other Util Functions
-void extract_data_from_va(void* va, unsigned int* page_dir_index, // this function extracts the three different parts of an address (for a two-level page table)
-    unsigned int* page_table_index, unsigned int* offset); // example - for a 4k page size: the page directory index (first 10 bits), the page table index (second 10 bits) and the offset (last 12 bits) 
+void extract_data_from_va(void* va, unsigned int* indices, unsigned int* offset);
 
-void extract_page_number_from_address(void* address, unsigned int* page_number); // this extracts the page number from an address, in other words, it removes the offset from an address and returns the first part of it which is the page number
+void extract_page_number_from_address(void* address, unsigned long* page_number); // this extracts the page number from an address, in other words, it removes the offset from an address and returns the first part of it which is the page number
 #endif

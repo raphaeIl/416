@@ -1,4 +1,4 @@
-#include "my_vm_frag.h"
+#include "my_vm64.h"
 
 vm_t vm; // global variable that contains the data needed for my vm
 pthread_mutex_t global_lock = PTHREAD_MUTEX_INITIALIZER;
@@ -25,10 +25,6 @@ void set_physical_mem() {
 
     vm.physical_bitmap = calloc(vm.num_physical_pages, sizeof(char)); // calloc to set all initial values to 0 (unallocated)
     vm.virtual_bitmap = calloc(vm.num_virtual_pages, sizeof(char)); 
-
-    vm.page_metadata = malloc(vm.num_virtual_pages * sizeof(page_metadata_t));
-    // printf("Physical memory and bitmaps initialized.\n");
-    // printf("# physical pages: %d, # virtual pages: %d\n", vm.num_physical_pages, vm.num_virtual_pages);
 
     set_bit_at_index(vm.physical_bitmap, 0); // set bit 0 to always used
     set_bit_at_index(vm.virtual_bitmap, 0);
@@ -60,7 +56,7 @@ void TLB_init() {
 int TLB_add(void *va, void *pa)
 {
     /*Part 2 HINT: Add a virtual to physical page translation to the TLB */
-    unsigned int vpn, ppn;
+    unsigned long vpn, ppn;
 
     extract_page_number_from_address(va, &vpn);
     extract_page_number_from_address(pa, &ppn);
@@ -78,7 +74,7 @@ int TLB_add(void *va, void *pa)
 }
 
 int TLB_remove(void *va) { // this simply just make the entry invalid by setting the valid int
-    unsigned int vpn;
+    unsigned long vpn;
 
     extract_page_number_from_address(va, &vpn);
 
@@ -100,7 +96,7 @@ pte_t* TLB_check(void *va) {
     /* Part 2: TLB lookup code here */
 
     /*This function should return a pte_t pointer*/
-    unsigned int vpn; // vpn: extract the first 20 bits which is the vpn (offset removed)
+    unsigned long vpn; // vpn: extract the first 20 bits which is the vpn (offset removed)
 
     extract_page_number_from_address(va, &vpn);
     int index = vpn % TLB_ENTRIES; // calculating the index this mapping should be stored at (vpn % num_sets)
@@ -109,8 +105,8 @@ pte_t* TLB_check(void *va) {
     {
         vm.tlb_store.hits++;
 
-        unsigned int ppn = vm.tlb_store.tlb_entries[index].physical_page;
-        unsigned int found_physical_address = ppn * PGSIZE;
+        unsigned long ppn = vm.tlb_store.tlb_entries[index].physical_page;
+        unsigned long found_physical_address = ppn * PGSIZE;
 
         return (pte_t*)found_physical_address;
     }
@@ -154,22 +150,27 @@ pte_t* translate(pde_t* pgdir, void* va) {
         return pa;
     }
 
-    unsigned int page_dir_index, page_table_index, offset;
+    unsigned int indices[NUM_LEVELS];
+    unsigned int offset;
+    extract_data_from_va(va, indices, &offset);
 
-    extract_data_from_va(va, &page_dir_index, &page_table_index, &offset);
+    pde_t* current_table = pgdir;
 
-    pte_t* second_level_table = (pte_t*)pgdir[page_dir_index];
-
-    if (second_level_table == NULL)
+    for (int i = 0; i < NUM_LEVELS - 1; i++) // walk the page table until the last level
     {
-        printf("That page table entry does not exist!\n");
-        return NULL;
+        if (!current_table[indices[i]]) 
+        {
+            return NULL; 
+        }
+
+        current_table = (pde_t*)current_table[indices[i]];
     }
 
     int num_offset_bits = (int)log2(PGSIZE); 
-    
-    unsigned int target_entry = second_level_table[page_table_index];
-    unsigned int physical_address = target_entry << num_offset_bits | offset;
+
+    // last level (real page table reached omg)
+    unsigned long target_entry = current_table[indices[NUM_LEVELS - 1]];
+    unsigned long physical_address = target_entry << num_offset_bits | offset;
 
     TLB_add(va, (void*)physical_address);
 
@@ -188,33 +189,37 @@ int map_page(pde_t* pgdir, void *va, void *pa)
     /*HINT: Similar to translate(), find the page directory (1st level)
     and page table (2nd-level) indices. If no mapping exists, set the
     virtual to physical mapping */
-    unsigned int page_dir_index, page_table_index, offset;
-    unsigned int physical_address = (unsigned int)pa;
+    unsigned long physical_address = (unsigned long)pa;
 
-    extract_data_from_va(va, &page_dir_index, &page_table_index, &offset);
+    unsigned int indices[NUM_LEVELS];
+    unsigned int offset;
+    extract_data_from_va(va, indices, &offset);
 
+    pde_t* current_table = pgdir;
     int num_offset_bits = (int)log2(PGSIZE); 
     int num_bit_per_level = (NUM_BIT_ADDRESS_SPACE - num_offset_bits) / NUM_LEVELS;
-    int page_directory_size = pow(2, num_bit_per_level); // 10 bits 2^10 = 1024
+    int page_directory_size = pow(2, num_bit_per_level); // 13 bits 2^13 = 8192
 
-    if (!pgdir[page_dir_index]) // this means that the current page directory for this va is null, initialize it with malloc
+    // for each table down the walk, allocate if NULL
+    for (int i = 0; i < NUM_LEVELS - 1; i++) 
     {
-        // printf("mapping not found, allowcating second-level table.\n");
-        pgdir[page_dir_index] = (unsigned int)calloc(page_directory_size, sizeof(pte_t));
-    }   
+        if (!current_table[indices[i]]) 
+        {
+            current_table[indices[i]] = (pde_t)calloc(page_directory_size, sizeof(pde_t));
+        }
 
-    pte_t* second_level_table = (pte_t*)pgdir[page_dir_index];
-
-    if (second_level_table[page_table_index] != (int)NULL)
-    {
-        // printf("virtual address: 0x%x with page_table_index: 0x%d already has a mapping! of: 0x%x\n", va, second_level_table[page_table_index], page_table_index);
-        return -1;
+        current_table = (pde_t*)current_table[indices[i]];
     }
 
-    unsigned int ppn; // extract the top bits of the physical address, this removes the offset since it is not needed to be stored (the va contains the offsets)
+    if (current_table[indices[NUM_LEVELS - 1]]) 
+    {
+        return -1; // page already mapped
+    }
+
+    unsigned long ppn; // extract the top bits of the physical address, this removes the offset since it is not needed to be stored (the va contains the offsets)
     
     extract_page_number_from_address(pa, &ppn);
-    second_level_table[page_table_index] = ppn;
+    current_table[indices[NUM_LEVELS - 1]] = ppn;
 
     if (TLB_check(va) == NULL) // cached translation found inside tlb if not inside already
     {
@@ -246,7 +251,7 @@ void* get_next_avail_virtual(int num_pages) {
 
         if (is_available)
         {
-            unsigned int available_virtual_address = i * PGSIZE;
+            unsigned long available_virtual_address = i * PGSIZE;
             return (void*)available_virtual_address;
         }
     }
@@ -263,7 +268,7 @@ void* get_next_avail_physical() {
     {
         if (get_bit_at_index(vm.physical_bitmap, i) == 0)
         {
-            unsigned int available_physical_address = i * PGSIZE;
+            unsigned long available_physical_address = i * PGSIZE;
 
             return (void*)available_physical_address;
         }
@@ -279,7 +284,7 @@ void* get_next_avail_physical() {
  *       this function at the same time should NOT get the same
  *       or overlapping allocations
 */
-void *n_malloc(unsigned int num_bytes) {
+void *n_malloc(unsigned long num_bytes) {
 
     /* 
      * HINT: If the physical memory is not yet initialized, then allocate and initialize.
@@ -360,17 +365,17 @@ void mat_mult(void *mat1, void *mat2, int size, void *answer) {
     int i, j, k;
     for (i = 0; i < size; i++) {
         for(j = 0; j < size; j++) {
-            unsigned int a, b, c = 0;
+            unsigned long a, b, c = 0;
             for (k = 0; k < size; k++) {
-                int address_a = (unsigned int)mat1 + ((i * size * sizeof(int))) + (k * sizeof(int));
-                int address_b = (unsigned int)mat2 + ((k * size * sizeof(int))) + (j * sizeof(int));
+                int address_a = (unsigned long)mat1 + ((i * size * sizeof(int))) + (k * sizeof(int));
+                int address_b = (unsigned long)mat2 + ((k * size * sizeof(int))) + (j * sizeof(int));
                 get_data( (void *)address_a, &a, sizeof(int));
                 get_data( (void *)address_b, &b, sizeof(int));
                 printf("Values at the index: %d, %d, %d, %d, %d\n", 
                     a, b, size, (i * size + k), (k * size + j));
                 c += (a * b);
             }
-            int address_c = (unsigned int)answer + ((i * size * sizeof(int))) + (j * sizeof(int));
+            int address_c = (unsigned long)answer + ((i * size * sizeof(int))) + (j * sizeof(int));
             printf("This is the c: %d, address: %x!\n", c, address_c);
             put_data((void *)address_c, (void *)&c, sizeof(int));
         }
@@ -383,13 +388,13 @@ void mat_mult(void *mat1, void *mat2, int size, void *answer) {
     from beginning (inclusive) to end (exclusive), or range: [begin, end)
     From the least sigificant bit to the most, so reversed order.
 */ 
-unsigned int extract_bits(unsigned int value, int begin, int end)
+unsigned long extract_bits(unsigned long value, int begin, int end)
 {
-    unsigned int mask = (1 << (end - begin)) - 1;
+    unsigned long mask = (1UL << (end - begin)) - 1;
     return (value >> begin) & mask;
 }
 
-unsigned int get_top_bits(unsigned int value,  int num_bits)
+unsigned long get_top_bits(unsigned long value,  int num_bits)
 {
 	int shift = floor(log2(value)) + 1;
 
@@ -428,32 +433,31 @@ int get_bit_at_index(char *bitmap, int index)
     return (bitmap[byteNum] >> bitNum) & 1;
 }
 
-void extract_data_from_va(void* va, unsigned int* page_dir_index, unsigned int* page_table_index, unsigned int* offset)
+void extract_data_from_va(void* va, unsigned int* indices, unsigned int* offset) 
 {
-    int num_offset_bits = (int)log2(PGSIZE); // in a 4k page size config, 12 bits reserved for the offset
-    int num_bit_per_level = (NUM_BIT_ADDRESS_SPACE - num_offset_bits) / NUM_LEVELS; // each level 10 bits, assuming evenly divided bits per level for now
+    unsigned long virtual_address = (unsigned long)va;
+    int num_offset_bits = (int)log2(PGSIZE); 
+    int num_bit_per_level = (NUM_BIT_ADDRESS_SPACE - num_offset_bits) / NUM_LEVELS;
 
-    unsigned int virtual_address = (unsigned int)va; 
-    *page_dir_index = extract_bits(virtual_address, num_offset_bits + num_bit_per_level, NUM_BIT_ADDRESS_SPACE);
-    *page_table_index = extract_bits(virtual_address, num_offset_bits, num_offset_bits + num_bit_per_level);
     *offset = extract_bits(virtual_address, 0, num_offset_bits);
 
-    // printf("virtual_address: 0x%x\n", virtual_address);
-    // printf("num_offset_bits: %d\n", num_offset_bits);
-    // printf("num_bit_per_level: %d\n", num_bit_per_level);
-    // printf("page_dir_index (first level): 0x%x\n", *page_dir_index);
-    // printf("page_table_index (second level): 0x%x\n", *page_table_index);
-    // printf("offset: 0x%x\n", *offset);
+    // extract the index for each level, in this case 4-level 12 bit offset in a 64 bit space, (64 - 12) / 4 = 13 bits per level
+    // store each corresponding index to the array passed in
+    for (int i = 0; i < NUM_LEVELS; i++) 
+    {
+        int start_bit = num_offset_bits + (i * num_bit_per_level);
+        indices[i] = extract_bits(virtual_address, start_bit, start_bit + num_bit_per_level);
+    }
 }
 
-void extract_page_number_from_address(void* address, unsigned int* page_number)
+void extract_page_number_from_address(void* address, unsigned long* page_number)
 {
     int num_offset_bits = (int)log2(PGSIZE); // in a 4k page size config, 12 bits reserved for the offset
 
-    *page_number = extract_bits((unsigned int)address, num_offset_bits, NUM_BIT_ADDRESS_SPACE);
+    *page_number = extract_bits((unsigned long)address, num_offset_bits, NUM_BIT_ADDRESS_SPACE);
 }
 
-void* __n_malloc_internal(unsigned int num_bytes) {
+void* __n_malloc_internal(unsigned long num_bytes) {
     int num_offset_bits = (int)log2(PGSIZE); 
     int num_bit_per_level = (NUM_BIT_ADDRESS_SPACE - num_offset_bits) / NUM_LEVELS;
     int page_directory_size = pow(2, num_bit_per_level);
@@ -464,22 +468,7 @@ void* __n_malloc_internal(unsigned int num_bytes) {
         vm.pgdir = calloc(page_directory_size, sizeof(pde_t)); // 2^10, 10 bits for first level
     }
 
-    // fragmentation: try to find a page that has space left
-    for (int i = 0; i < vm.num_virtual_pages; i++) 
-    {
-        if (vm.page_metadata[i].remaining_space >= num_bytes) // found one
-        {
-            unsigned int virtual_page_start = i * PGSIZE; // calculate the address starting from where this page is free and return that
-            unsigned int allocation_address = virtual_page_start + vm.page_metadata[i].next_free_offset;
-
-            vm.page_metadata[i].next_free_offset += num_bytes;
-            vm.page_metadata[i].remaining_space -= num_bytes;
-
-            return (void*)allocation_address;
-        }
-    }
-
-    unsigned int num_pages_needed = (int)ceil((double)num_bytes / PGSIZE); // calculates the number of pages needed, rounded up since for example 4097 bytes uses 2 pages
+    unsigned long num_pages_needed = (int)ceil((double)num_bytes / PGSIZE); // calculates the number of pages needed, rounded up since for example 4097 bytes uses 2 pages
 
     pte_t next_available_virtual_address = (pte_t)get_next_avail_virtual(num_pages_needed);;
 
@@ -492,7 +481,7 @@ void* __n_malloc_internal(unsigned int num_bytes) {
     pte_t current_virtual_address = next_available_virtual_address;
 
     for (int i = 0; i < num_pages_needed; i++) { // for EACH page, map the va to pa, (storing it inside the pagetable) and set the bit in the bitmap indicating it has been allocated
-        unsigned int current_physical_address = (unsigned int)get_next_avail_physical(); 
+        unsigned long current_physical_address = (unsigned long)get_next_avail_physical(); 
         
         if (current_physical_address == (int)NULL) 
         {
@@ -514,16 +503,8 @@ void* __n_malloc_internal(unsigned int num_bytes) {
 
         set_bit_at_index(vm.virtual_bitmap, virtual_page_index);
         set_bit_at_index(vm.physical_bitmap, physical_page_index);
-        // printf("Mapped virtual address: 0x%x to physical address: 0x%x\n", (void *)current_virtual_address, current_physical_address);
-        
-        // reduce frag - initialize the meta data for the current page
-        vm.page_metadata[virtual_page_index].remaining_space = PGSIZE - num_bytes;
-        vm.page_metadata[virtual_page_index].next_free_offset = num_bytes;
-
         current_virtual_address += PGSIZE;
     }
-
-    // printf("Confirmation - 0x%x -> 0x%x\n", next_available_virtual_address, translate(vm.pgdir, (void*)next_available_virtual_address));
 
     return (void*)next_available_virtual_address; // return the start of the va
 }
@@ -535,16 +516,14 @@ void __n_free_internal(void *va, int size) { // freeing the whole page even if s
         return;
     }
 
-    unsigned int virtual_address = (unsigned int)va;
+    unsigned long virtual_address = (unsigned long)va;
     int num_pages_freed = (int)ceil((double)size / PGSIZE);
     
     for (int i = 0; i < num_pages_freed; i++) // looping through and freeing EACH page, for each page, set the corresponding region in the physical memory to null, clear the bit in the bitmap and remove it from the TLB
     {
-        unsigned int current_virtual_address = virtual_address + i * PGSIZE; 
-        unsigned int current_physical_address = (unsigned int)translate(vm.pgdir, (void *)current_virtual_address);
+        unsigned long current_virtual_address = virtual_address + i * PGSIZE; 
+        unsigned long current_physical_address = (unsigned long)translate(vm.pgdir, (void *)current_virtual_address);
 
-        // printf("Freeing memory at: current_virtual_address: 0x%x, physical: 0x%x\n", current_virtual_address, current_physical_address);
-        
         if (current_physical_address == (int)NULL) 
         {
             printf("Virtual address has not been mapped or allocated\n");
@@ -554,45 +533,24 @@ void __n_free_internal(void *va, int size) { // freeing the whole page even if s
         int virtual_page_index = current_virtual_address / PGSIZE;
         int physical_page_index = current_physical_address / PGSIZE;
 
-        vm.page_metadata[virtual_page_index].remaining_space += size;
+        // unsigned long page_dir_index, page_table_index, offset;
+        unsigned int indices[NUM_LEVELS], offset;
+        extract_data_from_va((void*)current_virtual_address, indices, &offset);
 
-        // If the entire page is free, release it
-        if (vm.page_metadata[virtual_page_index].remaining_space == PGSIZE) 
+        pde_t* current_table = vm.pgdir;
+        
+        for (int j = 0; j < NUM_LEVELS - 1; j++) 
         {
-            unsigned int physical_address = (unsigned int)translate(vm.pgdir, va);
-
-            clear_bit_at_index(vm.virtual_bitmap, virtual_page_index);
-            clear_bit_at_index(vm.physical_bitmap, physical_address / PGSIZE);
-
-            unsigned int page_dir_index, page_table_index, offset;
-            extract_data_from_va((void *)virtual_address, &page_dir_index, &page_table_index, &offset);
-
-            pte_t *second_level_table = (pte_t *)vm.pgdir[page_dir_index];
-            if (second_level_table != NULL) {
-                second_level_table[page_table_index] = 0;
-            }
-
-            vm.page_metadata[virtual_page_index].remaining_space = 0;
-            vm.page_metadata[virtual_page_index].next_free_offset = 0;
-
+            current_table = (pde_t*)current_table[indices[j]];
         }
 
+        current_table[indices[NUM_LEVELS - 1]] = 0; // clear the page table
 
-        unsigned int page_dir_index, page_table_index, offset;
-        extract_data_from_va((void*)current_virtual_address, &page_dir_index, &page_table_index, &offset);
-
-        pte_t* second_level_table = (pte_t*)vm.pgdir[page_dir_index];
-
-        if (second_level_table != NULL) 
-        {
-            second_level_table[page_table_index] = (int)NULL;
-        }
 
         clear_bit_at_index(vm.virtual_bitmap, virtual_page_index);
         clear_bit_at_index(vm.physical_bitmap, physical_page_index); 
 
         TLB_remove((void*)current_virtual_address);
-        // printf("cleared bit at physical_bitmap index: %d, physical_page_index: %d\n", virtual_page_index, physical_page_index);
     }
 }
 
@@ -608,12 +566,12 @@ int __put_data_internal(void *va, void *val, int size) {
         return -1;
     }
 
-    unsigned int virtual_address = (unsigned int)va;
+    unsigned long virtual_address = (unsigned long)va;
     char* data = (char*)val;
     int remaining_data_size = size;
 
     while (remaining_data_size > 0) { // memcpy the data provided to the corresponding physical memory region, if the data doesn't fit in one page, still copy that amount of bytes into the page, but the page will not be full
-        unsigned int current_physical_address = (unsigned int)translate(vm.pgdir, (void *)virtual_address);
+        unsigned long current_physical_address = (unsigned long)translate(vm.pgdir, (void *)virtual_address);
 
         if (current_physical_address == (int)NULL) 
         {
@@ -621,8 +579,7 @@ int __put_data_internal(void *va, void *val, int size) {
             return -1;
         }
 
-        unsigned int page_dir_index, page_table_index, offset;
-        extract_data_from_va(va, &page_dir_index, &page_table_index, &offset);
+        unsigned long offset = virtual_address % PGSIZE;
 
         int copy_size = PGSIZE;
 
@@ -653,13 +610,13 @@ void __get_data_internal(void *va, void *val, int size) { // very similar to put
         return;
     }
 
-    unsigned int virtual_address = (unsigned int)va;
+    unsigned long virtual_address = (unsigned long)va;
     char* dest = (char*)val;
     int remaining_data_size = size;
 
     while (remaining_data_size > 0) {
 
-        unsigned int current_physical_address = (unsigned int)translate(vm.pgdir, (void *)virtual_address);
+        unsigned long current_physical_address = (unsigned long)translate(vm.pgdir, (void *)virtual_address);
 
         if (current_physical_address == (int)NULL) 
         {
@@ -667,8 +624,7 @@ void __get_data_internal(void *va, void *val, int size) { // very similar to put
             return;
         }
 
-        unsigned int page_dir_index, page_table_index, offset;
-        extract_data_from_va(va, &page_dir_index, &page_table_index, &offset);
+        unsigned long offset = virtual_address % PGSIZE;
 
         int copy_size = PGSIZE;
 
