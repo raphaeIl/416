@@ -117,5 +117,5 @@ unsigned int extract_bits(unsigned int value, int begin, int end); // this funct
 void extract_data_from_va(void* va, unsigned int* page_dir_index, // this function extracts the three different parts of an address (for a two-level page table)
     unsigned int* page_table_index, unsigned int* offset); // example - for a 4k page size: the page directory index (first 10 bits), the page table index (second 10 bits) and the offset (last 12 bits) 
 
-void extract_page_number_from_address(void* address, unsigned int* page_number); // this extracts the page number from an address, in other works, it removes the offset from an address and returns the first part of it which is the page number
+void extract_page_number_from_address(void* address, unsigned int* page_number); // this extracts the page number from an address, in other words, it removes the offset from an address and returns the first part of it which is the page number
 #endif
